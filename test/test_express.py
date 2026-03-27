@@ -27,7 +27,7 @@ async def test_express_server_tool_names(httpx_mock):
     )
     tools = await server.get_tools()
     tool_names = sorted(tools.keys())
-    assert tool_names == ["createRegistration", "sendVerificationCode", "verifyCode"]
+    assert tool_names == ["createRegistration", "sendVerificationCode", "verifyRegistrationCode"]
 
 
 @pytest.mark.asyncio
@@ -75,7 +75,7 @@ async def test_create_registration_tool_parameters(httpx_mock):
 
 @pytest.mark.asyncio
 async def test_verify_code_tool_parameters(httpx_mock):
-    """verifyCode tool should require phoneNumber, code, email."""
+    """verifyRegistrationCode tool should require phoneNumber, code, email."""
     create_mock(httpx_mock, "express")
 
     server = await _create_server(
@@ -84,7 +84,7 @@ async def test_verify_code_tool_parameters(httpx_mock):
         requires_auth=False,
     )
     tools = await server.get_tools()
-    verify = tools["verifyCode"]
+    verify = tools["verifyRegistrationCode"]
 
     # Access the parameters schema
     params = verify.parameters

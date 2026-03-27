@@ -47,6 +47,8 @@ async def _create_server(
 
     headers = {"User-Agent": "Bandwidth MCP Server"}
     if requires_auth:
+        if "BW_USERNAME" not in config or "BW_PASSWORD" not in config:
+            raise ValueError("BW_USERNAME and BW_PASSWORD required for authenticated APIs")
         auth_b64 = create_auth_header(config["BW_USERNAME"], config["BW_PASSWORD"])
         headers["Authorization"] = f"Basic {auth_b64}"
 

@@ -22,11 +22,18 @@ api_server_info: Dict[str, Dict[str, Any]] = {
     "end-user-management": {
         "url": "https://dev.bandwidth.com/spec/end-user-management.yml"
     },
+    "express-registration": {
+        "url": "https://dev.bandwidth.com/spec/express.yml",
+        "requires_auth": False,
+    },
 }
 
 
 async def _create_server(
-    url: str, route_map_fn: Optional[Callable] = None, config: Dict[str, Any] = {}
+    url: str,
+    route_map_fn: Optional[Callable] = None,
+    config: Dict[str, Any] = {},
+    requires_auth: bool = True,
 ) -> FastMCP:
     """Create an MCP server from the provided spec URL and credentials."""
     # Fetch and clean the OpenAPI spec
@@ -37,15 +44,13 @@ async def _create_server(
         raise ValueError(f"OpenAPI spec from {url} has no servers defined")
 
     base_url = spec_object["servers"][0]["url"]
-    auth_b64 = create_auth_header(config["BW_USERNAME"], config["BW_PASSWORD"])
 
-    client = AsyncClient(
-        base_url=base_url,
-        headers={
-            "Authorization": f"Basic {auth_b64}",
-            "User-Agent": "Bandwidth MCP Server",
-        },
-    )
+    headers = {"User-Agent": "Bandwidth MCP Server"}
+    if requires_auth:
+        auth_b64 = create_auth_header(config["BW_USERNAME"], config["BW_PASSWORD"])
+        headers["Authorization"] = f"Basic {auth_b64}"
+
+    client = AsyncClient(base_url=base_url, headers=headers)
 
     mcp = FastMCP.from_openapi(
         openapi_spec=spec_object,
@@ -81,8 +86,12 @@ async def create_bandwidth_mcp(
 
     for api_name, api_info in api_server_info.items():
         try:
+            requires_auth = api_info.get("requires_auth", True)
             server = await _create_server(
-                api_info["url"], route_map_fn=route_map_fn, config=config
+                api_info["url"],
+                route_map_fn=route_map_fn,
+                config=config,
+                requires_auth=requires_auth,
             )
             await mcp.import_server(server)
         except Exception as e:

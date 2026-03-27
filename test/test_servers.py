@@ -17,7 +17,7 @@ async def create_mcp_server(name=None, tools=None, excluded_tools=None):
     return mcp
 
 
-def calculate_expected_tools(tools, excluded_tools, total_tools=47):
+def calculate_expected_tools(tools, excluded_tools, total_tools=49):
     if tools and not excluded_tools:
         return len(tools)
     elif excluded_tools:
@@ -49,6 +49,7 @@ async def test_full_mcp_server_creation(tools, excluded_tools, httpx_mock: HTTPX
         "phone-number-lookup-v2",
         "insights",
         "end-user-management",
+        "express",
     ]:
         create_mock(httpx_mock, name)
 

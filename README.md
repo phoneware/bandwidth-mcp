@@ -88,7 +88,7 @@ BW_MCP_EXCLUDE_TOOLS=createLookup,getLookupStatus
 **Account Creation Flow (Express Registration)**
 
 ```sh
-BW_MCP_TOOLS=createRegistration,sendVerificationCode,verifyCode
+BW_MCP_TOOLS=createRegistration,sendVerificationCode,verifyRegistrationCode
 ```
 
 ## Using the Server
@@ -242,10 +242,10 @@ uvx --from ./ start
 
 ## Tools List
 
-## **Express Registration**
+### **Express Registration**
 - `createRegistration` - Register a new Bandwidth account
 - `sendVerificationCode` - Send SMS verification code
-- `verifyCode` - Verify phone number with SMS code
+- `verifyRegistrationCode` - Verify phone number with SMS code
 
 > **Note:** Express Registration does not require authentication. These tools work without `BW_USERNAME`/`BW_PASSWORD`.
 

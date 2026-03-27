@@ -48,7 +48,7 @@ paths:
                 $ref: '#/components/schemas/sendResponse'
   /registration/code/verify:
     post:
-      operationId: verifyCode
+      operationId: verifyRegistrationCode
       summary: Validate SMS verification code
       description: Validates 6-digit code against Bandwidth MFA API
       security: []

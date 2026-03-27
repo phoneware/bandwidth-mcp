@@ -16,6 +16,10 @@ _config = {}
 
 async def _reload_authenticated_servers():
     """Load authenticated API servers after credentials are set mid-session."""
+    if _config.get("_authenticated_servers_loaded"):
+        return
+    _config["_authenticated_servers_loaded"] = True
+
     enabled_tools = get_enabled_tools()
     excluded_tools = get_excluded_tools()
     route_map_fn = create_route_map_fn(enabled_tools, excluded_tools)

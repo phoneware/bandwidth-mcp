@@ -1,4 +1,5 @@
 import os
+import warnings
 from typing import Dict, List, Optional
 from argparse import ArgumentParser, Namespace
 
@@ -21,7 +22,6 @@ def load_config() -> Dict[str, str]:
             config[var] = value
 
     if "BW_USERNAME" not in config or "BW_PASSWORD" not in config:
-        import warnings
         warnings.warn(
             "BW_USERNAME/BW_PASSWORD not set. Only Express Registration tools will be available. "
             "Use the setCredentials tool after registration to enable authenticated APIs.",

@@ -32,10 +32,12 @@ api_server_info: Dict[str, Dict[str, Any]] = {
 async def _create_server(
     url: str,
     route_map_fn: Optional[Callable] = None,
-    config: Dict[str, Any] = {},
+    config: Optional[Dict[str, Any]] = None,
     requires_auth: bool = True,
 ) -> FastMCP:
     """Create an MCP server from the provided spec URL and credentials."""
+    if config is None:
+        config = {}
     # Fetch and clean the OpenAPI spec
     spec_object = await fetch_openapi_spec(url)
 
@@ -68,7 +70,7 @@ async def create_bandwidth_mcp(
     mcp: FastMCP,
     enabled_tools: Optional[List[str]],
     excluded_tools: Optional[List[str]],
-    config: Dict[str, Any] = {},
+    config: Optional[Dict[str, Any]] = None,
 ) -> FastMCP:
     """Create the Bandwidth MCP server from all supplied APIs, taking into account enabled and excluded APIs.
 
@@ -84,6 +86,8 @@ async def create_bandwidth_mcp(
     Raises:
         RuntimeError: If any API server fails to create or import
     """
+    if config is None:
+        config = {}
     route_map_fn = create_route_map_fn(enabled_tools, excluded_tools)
 
     for api_name, api_info in api_server_info.items():

@@ -10,7 +10,8 @@ async def test_express_server_has_three_tools(httpx_mock):
 
     server = await _create_server(
         url="https://dev.bandwidth.com/spec/express.yml",
-        config={"BW_USERNAME": "user", "BW_PASSWORD": "pass"},
+        config={},
+        requires_auth=False,
     )
     tools = await server.get_tools()
     assert len(tools) == 3
@@ -23,7 +24,8 @@ async def test_express_server_tool_names(httpx_mock):
 
     server = await _create_server(
         url="https://dev.bandwidth.com/spec/express.yml",
-        config={"BW_USERNAME": "user", "BW_PASSWORD": "pass"},
+        config={},
+        requires_auth=False,
     )
     tools = await server.get_tools()
     tool_names = sorted(tools.keys())

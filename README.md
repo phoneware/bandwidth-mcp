@@ -85,6 +85,12 @@ BW_MCP_EXCLUDE_TOOLS=createLookup,getLookupStatus
 --exclude-tools createLookup,getLookupStatus
 ```
 
+**Account Creation Flow (Express Registration)**
+
+```sh
+BW_MCP_TOOLS=createRegistration,sendVerificationCode,verifyCode
+```
+
 ## Using the Server
 
 Below you'll find instructions for using our MCP server with different common AI agents, as well as instructions for running the server locally. For usage with AI agents, it is recommended to use a combination of [uv](https://github.com/astral-sh/uv?tab=readme-ov-file#uv) and environment variables to start and configure the server respectively.
@@ -235,6 +241,13 @@ uvx --from ./ start
 ```
 
 ## Tools List
+
+## **Express Registration**
+- `createRegistration` - Register a new Bandwidth account
+- `sendVerificationCode` - Send SMS verification code
+- `verifyCode` - Verify phone number with SMS code
+
+> **Note:** Express Registration does not require authentication. These tools work without `BW_USERNAME`/`BW_PASSWORD`.
 
 ## **Multi-Factor Authentication (MFA)**
 - `generateMessagingCode` - Send MFA code via SMS

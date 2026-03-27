@@ -42,3 +42,6 @@ async def test_express_server_no_auth_header(httpx_mock):
     )
     tools = await server.get_tools()
     assert len(tools) == 3
+    assert "authorization" not in {
+        k.lower() for k in server._client.headers.keys()
+    }, "Express server should not have an Authorization header"

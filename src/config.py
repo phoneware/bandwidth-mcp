@@ -6,24 +6,27 @@ from argparse import ArgumentParser, Namespace
 def load_config() -> Dict[str, str]:
     """Load Bandwidth configuration from environment variables."""
     config = {}
-    required_vars = ["BW_USERNAME", "BW_PASSWORD"]
-    optional_vars = [
+    all_vars = [
+        "BW_USERNAME",
+        "BW_PASSWORD",
         "BW_ACCOUNT_ID",
         "BW_NUMBER",
         "BW_MESSAGING_APPLICATION_ID",
         "BW_VOICE_APPLICATION_ID",
     ]
 
-    # Add all variables that exist
-    for var in required_vars + optional_vars:
-        value = os.getenv(var)
+    for var in all_vars:
+        value = os.environ.get(var)
         if value:
             config[var] = value
 
-    # Required variables
-    for var in required_vars:
-        if var not in config.keys():
-            raise ValueError(f"Missing required environment variable: {var}")
+    if "BW_USERNAME" not in config or "BW_PASSWORD" not in config:
+        import warnings
+        warnings.warn(
+            "BW_USERNAME/BW_PASSWORD not set. Only Express Registration tools will be available. "
+            "Use the setCredentials tool after registration to enable authenticated APIs.",
+            UserWarning,
+        )
 
     return config
 

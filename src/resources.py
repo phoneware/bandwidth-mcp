@@ -1,5 +1,6 @@
+from pathlib import Path
 from typing import List
-from fastmcp.resources import HttpResource, Resource
+from fastmcp.resources import FunctionResource, HttpResource, Resource
 
 
 number_order_guide_resource = HttpResource(
@@ -11,7 +12,18 @@ number_order_guide_resource = HttpResource(
     url="https://dev.bandwidth.com/docs/numbers/guides/searchingForNumbers.md",
 )
 
+_agents_md_path = Path(__file__).parent.parent / "AGENTS.md"
+
+mcp_agent_reference_resource = FunctionResource(
+    name="Bandwidth MCP Agent Reference",
+    description="Structured reference for AI agents using the Bandwidth MCP Server. Covers available tools, required credentials, common workflows, error patterns, and limitations.",
+    tags={"bandwidth", "agent", "reference", "docs"},
+    uri="resource://mcp_agent_reference",
+    mime_type="text/markdown",
+    fn=lambda: _agents_md_path.read_text(encoding="utf-8"),
+)
+
 
 def get_bandwidth_resources() -> List[Resource]:
     """Get all Bandwidth resources."""
-    return [number_order_guide_resource]
+    return [number_order_guide_resource, mcp_agent_reference_resource]

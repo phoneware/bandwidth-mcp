@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import specs
+
 from fastmcp import FastMCP
 from httpx import AsyncClient
 from typing import Dict, List, Optional, Callable, Any
@@ -11,7 +13,7 @@ from server_utils import (
     print_server_info,
 )
 
-_SPECS_DIR = Path(__file__).parent / "specs"
+_SPECS_DIR = Path(specs.__file__).parent
 
 api_server_info: Dict[str, Dict[str, Any]] = {
     "messaging": {"url": "https://dev.bandwidth.com/spec/messaging.yml"},

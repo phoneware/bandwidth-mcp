@@ -18,6 +18,15 @@ dependencies = [
 [project.scripts]
 start = "app:main"
 
+[tool.setuptools]
+packages = ["specs", "tools"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+specs = ["*.yml"]
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 

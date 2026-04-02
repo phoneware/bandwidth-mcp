@@ -1,0 +1,7 @@
+openapi: 3.0.3
+info:
+  title: Bandwidth Test Fixture
+  version: 1.0.0
+servers:
+  - url: https://api.bandwidth.com/v2
+paths: {}

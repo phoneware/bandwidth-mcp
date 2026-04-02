@@ -25,6 +25,11 @@ api_server_info: Dict[str, Dict[str, Any]] = {
     "end-user-management": {
         "url": "https://dev.bandwidth.com/spec/end-user-management.yml"
     },
+    "voice": {"url": "https://dev.bandwidth.com/spec/voice.yml"},
+    "numbers": {"url": "https://dev.bandwidth.com/spec/numbers.yml"},
+    "toll-free-verification": {
+        "url": "https://dev.bandwidth.com/spec/toll-free-verification.yml"
+    },
     "express-registration": {
         # Bundled locally — not yet published to dev.bandwidth.com
         "url": str(_SPECS_DIR / "express.yml"),

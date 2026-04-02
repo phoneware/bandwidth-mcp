@@ -49,6 +49,9 @@ async def test_full_mcp_server_creation(tools, excluded_tools, httpx_mock: HTTPX
         "phone-number-lookup-v2",
         "insights",
         "end-user-management",
+        "voice",
+        "numbers",
+        "toll-free-verification",
     ]:
         create_mock(httpx_mock, name)
 

@@ -1,0 +1,191 @@
+openapi: 3.0.3
+info:
+  title: Bandwidth Express Registration
+  version: 1.0.0
+  description: Express Registration API for new customer onboarding
+servers:
+  - url: https://api.bandwidth.com/v1/express
+    description: Production
+security: []
+paths:
+  /registration:
+    post:
+      operationId: createRegistration
+      summary: Initialize a new customer registration
+      description: Validates phone number and email are not already in use, creates registration record, begins user creation process
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/registerRequest'
+      responses:
+        '200':
+          description: Registration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/registerResponse'
+  /registration/code:
+    post:
+      operationId: sendVerificationCode
+      summary: Send or resend SMS verification code
+      description: Sends 6-digit SMS code to phone number on registration record
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/sendRequest'
+      responses:
+        '200':
+          description: Verification code sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/sendResponse'
+  /registration/code/verify:
+    post:
+      operationId: verifyRegistrationCode
+      summary: Validate SMS verification code
+      description: Validates 6-digit code against Bandwidth MFA API
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/verifyRequest'
+      responses:
+        '200':
+          description: Phone number verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/verifyResponse'
+components:
+  schemas:
+    registerRequest:
+      type: object
+      required:
+        - phoneNumber
+        - email
+        - firstName
+        - lastName
+      additionalProperties: false
+      properties:
+        phoneNumber:
+          type: string
+          description: US phone number in E.164 format
+          example: "+19195551234"
+        email:
+          type: string
+          description: Email address (must be @bandwidth.com domain)
+          example: "user@bandwidth.com"
+        firstName:
+          type: string
+          description: Customer's first name
+          example: "Jane"
+        lastName:
+          type: string
+          description: Customer's last name
+          example: "Doe"
+    registerResponse:
+      type: object
+      properties:
+        links:
+          type: array
+          items: {}
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Onboarding request received successfully"
+            status:
+              type: string
+              example: "USER_CREATION_PENDING"
+            registrationId:
+              type: string
+              format: uuid
+              example: "5fce253e-fdbc-433f-829b-6839d1edbebe"
+        errors:
+          type: array
+          items: {}
+    sendRequest:
+      type: object
+      required:
+        - phoneNumber
+        - email
+      additionalProperties: false
+      properties:
+        phoneNumber:
+          type: string
+          description: US phone number in E.164 format
+          example: "+19195551234"
+        email:
+          type: string
+          description: Email address used during registration
+          example: "user@bandwidth.com"
+    sendResponse:
+      type: object
+      properties:
+        links:
+          type: array
+          items: {}
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Code successfully sent to +19195551234"
+            status:
+              type: string
+              example: "VERIFICATION_CODE_SENT"
+        errors:
+          type: array
+          items: {}
+    verifyRequest:
+      type: object
+      required:
+        - phoneNumber
+        - code
+        - email
+      additionalProperties: false
+      properties:
+        phoneNumber:
+          type: string
+          description: US phone number in E.164 format
+          example: "+19195551234"
+        code:
+          type: string
+          description: 6-digit SMS verification code
+          example: "123456"
+        email:
+          type: string
+          description: Email address used during registration
+          example: "user@bandwidth.com"
+    verifyResponse:
+      type: object
+      properties:
+        links:
+          type: array
+          items: {}
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "+19195551234 successfully verified"
+            status:
+              type: string
+              example: "PHONE_VERIFIED"
+            registrationId:
+              type: string
+              format: uuid
+              example: "5fce253e-fdbc-433f-829b-6839d1edbebe"
+        errors:
+          type: array
+          items: {}

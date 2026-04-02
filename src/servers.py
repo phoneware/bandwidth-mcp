@@ -23,11 +23,15 @@ api_server_info: Dict[str, Dict[str, Any]] = {
     "phone-number-lookup": {
         "url": "https://dev.bandwidth.com/spec/phone-number-lookup-v2.yml"
     },
-    "insights": {"url": "https://dev.bandwidth.com/spec/insights.yml"},
+    "voice": {"url": "https://dev.bandwidth.com/spec/voice.yml"},
+    "insights": {
+        "url": "https://dev.bandwidth.com/spec/insights.yml",
+        # listCalls/listCall collide with voice spec — exclude from insights
+        "exclude_tools": ["listCalls", "listCall"],
+    },
     "end-user-management": {
         "url": "https://dev.bandwidth.com/spec/end-user-management.yml"
     },
-    "voice": {"url": "https://dev.bandwidth.com/spec/voice.yml"},
     "numbers": {"url": "https://dev.bandwidth.com/spec/numbers.yml"},
     "toll-free-verification": {
         "url": "https://dev.bandwidth.com/spec/toll-free-verification.yml"
@@ -105,9 +109,16 @@ async def create_bandwidth_mcp(
     for api_name, api_info in api_server_info.items():
         try:
             requires_auth = api_info.get("requires_auth", True)
+            # Merge per-spec exclusions (only when not using explicit enabled_tools)
+            spec_excludes = api_info.get("exclude_tools", [])
+            if spec_excludes and not enabled_tools:
+                combined_excluded = list(set((excluded_tools or []) + spec_excludes))
+                spec_route_map_fn = create_route_map_fn(None, combined_excluded)
+            else:
+                spec_route_map_fn = route_map_fn
             server = await _create_server(
                 api_info["url"],
-                route_map_fn=route_map_fn,
+                route_map_fn=spec_route_map_fn,
                 config=config,
                 requires_auth=requires_auth,
             )

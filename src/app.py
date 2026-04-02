@@ -18,7 +18,7 @@ from tools.callbacks import register_callback_tools
 from tools.voice import register_voice_tools
 from instructions import build_instructions
 from event_store import EventStore
-from callbacks import create_callback_app
+from callbacks import register_callback_routes
 
 mcp = FastMCP(name="Bandwidth MCP")
 _config = {}
@@ -69,6 +69,7 @@ async def setup(mcp: FastMCP = mcp):
     )
     register_callback_tools(mcp, _event_store)
     register_voice_tools(mcp, _event_store)
+    register_callback_routes(mcp, _event_store)
 
     all_tools = await mcp.get_tools()
     mcp.instructions = build_instructions(_config, list(all_tools.keys()))
@@ -84,8 +85,6 @@ def main():
     if transport == "stdio":
         mcp.run()
     else:
-        callback_app = create_callback_app(_event_store)
-        mcp.mount("callbacks", callback_app)
         mcp.run(
             transport=transport,
             host=transport_config["host"],

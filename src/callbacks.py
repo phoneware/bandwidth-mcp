@@ -1,15 +1,16 @@
-"""Starlette callback routes for Bandwidth webhooks.
+"""Callback routes for Bandwidth webhooks.
 
 Messaging callbacks are fire-and-forget (store event, return 200).
 Voice callbacks are stateful (store event, return BXML or redirect).
+
+Routes are registered directly on the FastMCP instance via custom_route
+so they're served on the same HTTP transport as MCP tools.
 """
 
-from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
-from starlette.routing import Route
 
-from src.event_store import EventStore
+from event_store import EventStore
 
 
 def _bxml_response(bxml: str) -> Response:
@@ -20,7 +21,10 @@ def _redirect_bxml(call_id: str) -> str:
     return f'<Response><Redirect redirectUrl="/callbacks/voice/continue/{call_id}" /></Response>'
 
 
-def create_callback_app(event_store: EventStore) -> Starlette:
+def register_callback_routes(mcp, event_store: EventStore) -> None:
+    """Register callback HTTP routes on the FastMCP server."""
+
+    @mcp.custom_route("/callbacks/messaging/inbound", methods=["POST"])
     async def messaging_inbound(request: Request) -> JSONResponse:
         payload = await request.json()
         for event in payload:
@@ -28,6 +32,7 @@ def create_callback_app(event_store: EventStore) -> Starlette:
             event_store.push("messaging.inbound", key, event)
         return JSONResponse({"status": "ok"})
 
+    @mcp.custom_route("/callbacks/messaging/status", methods=["POST"])
     async def messaging_status(request: Request) -> JSONResponse:
         payload = await request.json()
         for event in payload:
@@ -35,6 +40,7 @@ def create_callback_app(event_store: EventStore) -> Starlette:
             event_store.push("messaging.status", key, event)
         return JSONResponse({"status": "ok"})
 
+    @mcp.custom_route("/callbacks/voice/answer", methods=["POST"])
     async def voice_answer(request: Request) -> Response:
         payload = await request.json()
         call_id = payload.get("callId", "unknown")
@@ -47,6 +53,7 @@ def create_callback_app(event_store: EventStore) -> Starlette:
         )
         return _bxml_response(_redirect_bxml(call_id))
 
+    @mcp.custom_route("/callbacks/voice/gather", methods=["POST"])
     async def voice_gather(request: Request) -> Response:
         payload = await request.json()
         call_id = payload.get("callId", "unknown")
@@ -60,6 +67,7 @@ def create_callback_app(event_store: EventStore) -> Starlette:
             call.add_turn("caller", text)
         return _bxml_response(_redirect_bxml(call_id))
 
+    @mcp.custom_route("/callbacks/voice/disconnect", methods=["POST"])
     async def voice_disconnect(request: Request) -> JSONResponse:
         payload = await request.json()
         call_id = payload.get("callId", "unknown")
@@ -67,6 +75,7 @@ def create_callback_app(event_store: EventStore) -> Starlette:
         event_store.remove_call(call_id)
         return JSONResponse({"status": "ok"})
 
+    @mcp.custom_route("/callbacks/voice/continue/{call_id}", methods=["POST"])
     async def voice_continue(request: Request) -> Response:
         call_id = request.path_params["call_id"]
         call = event_store.get_call(call_id)
@@ -75,14 +84,3 @@ def create_callback_app(event_store: EventStore) -> Starlette:
             if bxml:
                 return _bxml_response(bxml)
         return _bxml_response(_redirect_bxml(call_id))
-
-    routes = [
-        Route("/callbacks/messaging/inbound", messaging_inbound, methods=["POST"]),
-        Route("/callbacks/messaging/status", messaging_status, methods=["POST"]),
-        Route("/callbacks/voice/answer", voice_answer, methods=["POST"]),
-        Route("/callbacks/voice/gather", voice_gather, methods=["POST"]),
-        Route("/callbacks/voice/disconnect", voice_disconnect, methods=["POST"]),
-        Route("/callbacks/voice/continue/{call_id}", voice_continue, methods=["POST"]),
-    ]
-
-    return Starlette(routes=routes)

@@ -1,6 +1,7 @@
 import pytest
+from fastmcp import FastMCP
 from starlette.testclient import TestClient
-from src.callbacks import create_callback_app
+from src.callbacks import register_callback_routes
 from src.event_store import EventStore
 
 
@@ -11,7 +12,9 @@ def event_store():
 
 @pytest.fixture
 def client(event_store):
-    app = create_callback_app(event_store)
+    mcp = FastMCP(name="Callback Test")
+    register_callback_routes(mcp, event_store)
+    app = mcp.sse_app()
     return TestClient(app)
 
 

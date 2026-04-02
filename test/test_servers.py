@@ -63,7 +63,7 @@ async def test_full_mcp_server_creation(tools, excluded_tools, httpx_mock: HTTPX
     assert (
         len(mcp_tools) == expected_tools
     ), f"Expected {expected_tools} tools, got {len(mcp_tools)}"
-    assert len(mcp_resources) == 2, f"Expected 2 resources, got {len(mcp_resources)}"
+    assert len(mcp_resources) == 3, f"Expected 3 resources, got {len(mcp_resources)}"
 
     if excluded_tools:
         for tool in excluded_tools:

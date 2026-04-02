@@ -57,10 +57,9 @@ async def _reload_authenticated_servers():
 
 async def setup(mcp: FastMCP = mcp):
     """Setup the Bandwidth MCP server with tools and resources."""
-    global _config
     enabled_tools = get_enabled_tools()
     excluded_tools = get_excluded_tools()
-    _config = load_config()
+    _config.update(load_config())
     await authenticate_config(_config)
 
     print("Setting up Bandwidth MCP server...")

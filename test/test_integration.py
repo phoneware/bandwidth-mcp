@@ -44,8 +44,15 @@ async def test_instructions_set_after_setup(httpx_mock: HTTPXMock, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_callback_tools_available_after_setup(httpx_mock: HTTPXMock):
+async def test_callback_tools_available_after_setup(httpx_mock: HTTPXMock, monkeypatch):
     """Callback and voice tools are registered after setup."""
+    monkeypatch.delenv("BW_CLIENT_ID", raising=False)
+    monkeypatch.delenv("BW_CLIENT_SECRET", raising=False)
+
+    # Reset module-level config from previous test
+    import src.app
+    src.app._config.clear()
+
     for name in [
         "messaging",
         "multi-factor-auth",

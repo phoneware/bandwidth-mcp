@@ -266,6 +266,20 @@ All routes accept POST with JSON body (Bandwidth's webhook format).
 
 Messaging callbacks are fire-and-forget (store event, return 200). Voice callbacks are synchronous — Bandwidth expects BXML back.
 
+### Multi-Session Safety
+
+A single hosted server may have multiple MCP sessions connected simultaneously (e.g., two Claude Desktop windows, or Claude Desktop + Cursor). Without isolation, both agents would see the same callback events and could race to respond to the same voice call.
+
+**Solution: session-scoped event delivery.**
+
+Each MCP connection gets a session ID (FastMCP assigns these during handshake). The event store uses per-session read cursors:
+
+- **Read isolation:** `getCallbackEvents` returns events the calling session hasn't seen yet. Both Session A and Session B independently receive the same inbound SMS — neither "steals" it from the other.
+- **Write contention (voice):** `respondToCallback` uses first-write-wins. If Session A queues BXML for a call, Session B's attempt returns `{"error": "already_handled", "handled_by_session": "A"}`. No silent overwrites.
+- **No scoping of writes:** Both sessions can still call `createMessage`, `createCall`, etc. — these are normal API calls, not shared state. Only the event store and voice response queue need session awareness.
+
+This keeps the architecture single-tenant (one Bandwidth account per server) while preventing two agents from stepping on each other.
+
 ### Event Store
 
 A ring buffer per event type, keyed by identifiers (phone number, call ID):
@@ -654,7 +668,7 @@ The `configureCallbacks` tool updates a Bandwidth application's callback URLs to
 |----------|----------|-----------|
 | Conversation summarization | **No.** Store raw events, LLM manages its own context. | The server is a buffer, not an editor. The LLM client is better at deciding what's relevant. |
 | Event store persistence | **In-memory.** | Simple, no dependencies, sufficient for MVP. Events are ephemeral by nature. |
-| Multi-tenant hosting | **Single-tenant.** One server per Bandwidth account. | No realistic scenario where multiple accounts share a server. Adds complexity for zero value. |
+| Multi-tenant hosting | **Single-tenant, multi-session safe.** One server per Bandwidth account, but multiple MCP sessions can connect simultaneously. | Multi-account sharing adds complexity for zero value. Multi-session is a real scenario (two IDE windows) — solved with per-session read cursors and first-write-wins on voice responses. |
 | Relay vs callback server | **Callback server only.** Defer relay. | Hosted HTTP server can receive callbacks directly. Relay only matters for stdio/local setups — build it if/when that need arises. |
 | SSML support | **Light by default.** Auto-add pauses between sentences. Full SSML available via explicit verb fields. | Good default UX without requiring the agent to know SSML. |
 

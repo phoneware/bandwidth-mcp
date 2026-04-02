@@ -1,14 +1,39 @@
 import copy
+import hashlib
+import warnings
 import yaml
 import httpx
 import base64
 
+from pathlib import Path
 from fastmcp import FastMCP
 from fastmcp.resources import FunctionResource
 from fastmcp.server.openapi import MCPType, HTTPRoute
 from typing import Dict, List, Optional, Any, Callable
 
 from resources import get_bandwidth_resources
+
+CACHE_DIR = Path.home() / ".bw-mcp" / "spec-cache"
+
+
+def _cache_key(url: str) -> str:
+    return hashlib.sha256(url.encode()).hexdigest()[:16] + ".yml"
+
+
+def _save_spec_cache(url: str, spec: dict) -> None:
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    cache_path = CACHE_DIR / _cache_key(url)
+    cache_path.write_text(yaml.dump(spec), encoding="utf-8")
+
+
+def _load_spec_cache(url: str) -> dict | None:
+    cache_path = CACHE_DIR / _cache_key(url)
+    if not cache_path.exists():
+        return None
+    try:
+        return yaml.safe_load(cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
 
 
 async def print_server_info(mcp: FastMCP) -> None:
@@ -99,22 +124,26 @@ def _clean_openapi_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def fetch_openapi_spec(url: str) -> Dict[str, Any]:
-    """Fetch and parse OpenAPI spec from URL."""
+    """Fetch and parse OpenAPI spec from URL, with local cache fallback."""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
             spec_text = response.text
-
         spec_object = yaml.safe_load(spec_text)
         if not spec_object:
             raise ValueError(f"Empty or invalid YAML spec from {url}")
-
-        return _clean_openapi_spec(spec_object)
-    except httpx.HTTPError as e:
+        cleaned = _clean_openapi_spec(spec_object)
+        _save_spec_cache(url, cleaned)
+        return cleaned
+    except (ValueError, yaml.YAMLError):
+        raise
+    except Exception as e:
+        cached = _load_spec_cache(url)
+        if cached:
+            warnings.warn(f"Using cached spec for {url}: {e}")
+            return cached
         raise RuntimeError(f"Failed to fetch OpenAPI spec from {url}: {e}") from e
-    except yaml.YAMLError as e:
-        raise RuntimeError(f"Failed to parse YAML spec from {url}: {e}") from e
 
 
 def create_auth_header(username: str, password: str) -> str:

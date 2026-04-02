@@ -67,11 +67,11 @@ REGISTRATION_SECTION = """
 - **createRegistration**: Start a new Bandwidth account.
 - **sendVerificationCode**: Send SMS verification to the registered number.
 - **verifyRegistrationCode**: Confirm the code.
-Then call **setCredentials** with the new username, password, and account_id to unlock authenticated tools."""
+Then call **setCredentials** with the new client_id and client_secret to unlock authenticated tools."""
 
 ERROR_SECTION = """
 ## Error Patterns
-- **401 Unauthorized**: Wrong credentials. Check BW_USERNAME/BW_PASSWORD.
+- **401 Unauthorized**: Wrong credentials. Check BW_CLIENT_ID/BW_CLIENT_SECRET.
 - **422 Validation Error**: Missing or malformed fields. Phone numbers must be E.164 (+19195551234). Application IDs are UUIDs.
 - **"Tool not found"**: Check BW_MCP_TOOLS / BW_MCP_EXCLUDE_TOOLS filters.
 - **"Pending" responses**: Lookup and reporting are async — poll the status tool, don't treat pending as failure.

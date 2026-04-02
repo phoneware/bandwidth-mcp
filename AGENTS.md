@@ -10,6 +10,8 @@ The Bandwidth MCP Server exposes Bandwidth's APIs as MCP tools. Tools are auto-g
 
 **APIs covered:**
 - Messaging (SMS, MMS, RBM/multi-channel)
+- Voice (outbound calls, call control, conferences, recordings, transcriptions)
+- Numbers (search, order, manage phone numbers, toll-free verification)
 - Multi-Factor Authentication
 - Phone Number Lookup
 - Insights (reporting and analytics)
@@ -23,10 +25,11 @@ The Bandwidth MCP Server exposes Bandwidth's APIs as MCP tools. Tools are auto-g
 ### Required for most operations
 
 ```sh
-BW_USERNAME     # Bandwidth API username
-BW_PASSWORD     # Bandwidth API password
-BW_ACCOUNT_ID   # Bandwidth account ID
+BW_CLIENT_ID     # Bandwidth OAuth2 client ID
+BW_CLIENT_SECRET # Bandwidth OAuth2 client secret
 ```
+
+Account ID is auto-discovered from JWT claims after authentication — you do not need to provide it.
 
 ### Conditionally required
 
@@ -49,7 +52,7 @@ CLI flags `--tools` and `--exclude-tools` take priority over the env vars.
 
 ### No credentials needed
 
-Express Registration tools (`createRegistration`, `sendVerificationCode`, `verifyRegistrationCode`) work without `BW_USERNAME`/`BW_PASSWORD`. Use them to create an account first, then call `setCredentials` to load authenticated tools mid-session.
+Express Registration tools (`createRegistration`, `sendVerificationCode`, `verifyRegistrationCode`) work without authentication. Use them to create an account first, then call `setCredentials` to load authenticated tools mid-session.
 
 ---
 
@@ -86,7 +89,7 @@ No auth required. Use this to create a new Bandwidth account from scratch.
 
 | Tool | Description |
 |---|---|
-| `setCredentials` | Set username, password, and account_id mid-session to unlock authenticated tools |
+| `setCredentials` | Set client ID and secret to authenticate via OAuth2. Account ID is discovered automatically. |
 
 Call this after completing Express Registration if credentials weren't set at startup.
 
@@ -200,8 +203,61 @@ Requires: `BW_ACCOUNT_ID`
 
 | Tool | Description |
 |---|---|
+| `createCall` | Initiate an outbound voice call |
+| `updateCall` | Modify an active call (redirect, hang up, etc.) |
+| `updateCallBxml` | Replace the BXML on an active call |
 | `listCalls` | List call events with filtering |
+| `getCallState` | Get the current state of a call |
 | `listCall` | Get details for a single call event |
+| `listConferences` | List active conferences |
+| `getConference` | Get conference details |
+| `updateConference` | Modify a conference |
+| `updateConferenceBxml` | Replace the BXML on an active conference |
+| `getConferenceMember` | Get details for a conference participant |
+| `updateConferenceMember` | Modify a conference participant |
+| `listConferenceRecordings` | List recordings from a conference |
+| `getConferenceRecording` | Get a specific conference recording |
+| `listCallRecordings` | List recordings for a call |
+| `getCallRecording` | Get a specific call recording |
+| `deleteRecording` | Delete a recording |
+| `downloadRecording` | Download recording media |
+| `getRecordingTranscription` | Get transcription of a recording |
+| `createRecordingTranscription` | Request transcription of a recording |
+| `deleteRecordingTranscription` | Delete a transcription |
+| `deleteRecordingMedia` | Delete recording media file |
+| `getStatistics` | Get call statistics |
+
+The Voice API provides 28 tools covering outbound calls, call control, conferences, recordings, and transcriptions.
+
+**Enable:** `BW_MCP_PROFILE=voice`
+
+---
+
+### Numbers API
+
+Requires: `BW_ACCOUNT_ID`
+
+| Tool | Description |
+|---|---|
+| `searchAvailableNumbers` | Search for available phone numbers |
+| `orderNumbers` | Order phone numbers |
+| `listNumbers` | List numbers on the account |
+| `getNumber` | Get details for a specific number |
+| `updateNumber` | Update a number's settings |
+| `disconnectNumber` | Disconnect a number from the account |
+
+---
+
+### Toll-Free Verification
+
+Requires: `BW_ACCOUNT_ID`
+
+| Tool | Description |
+|---|---|
+| `listTollFreeVerifications` | List toll-free verification requests |
+| `createTollFreeVerification` | Submit a toll-free number for verification |
+| `getTollFreeVerification` | Get status of a verification request |
+| `updateTollFreeVerification` | Update a verification request |
 
 ---
 
@@ -286,7 +342,7 @@ No credentials needed at startup.
 1. Call `createRegistration` with account details.
 2. Call `sendVerificationCode` to send an SMS to the registered number.
 3. Call `verifyRegistrationCode` with the received code.
-4. Call `setCredentials` with the new `username`, `password`, and `account_id` to load authenticated tools.
+4. Call `setCredentials` with the new `client_id` and `client_secret` to load authenticated tools.
 
 ### Add a Business End User
 
@@ -337,14 +393,14 @@ Read `resource://config` at the start of a session to confirm which environment 
 
 ## Error Patterns
 
-**`BW_USERNAME and BW_PASSWORD required for authenticated APIs`**
+**`BW_CLIENT_ID and BW_CLIENT_SECRET required for authenticated APIs`**
 Credentials weren't set at startup and `setCredentials` hasn't been called. Either set the env vars before starting the server, or use the Express Registration flow followed by `setCredentials`.
 
 **`Warning: Failed to create server for {api_name}`**
 The OpenAPI spec fetch failed at startup (network issue, spec URL down). The affected API group's tools won't be available. Restart the server when connectivity is restored.
 
-**401 Unauthorized from API calls**
-Credentials are wrong or expired. Double-check `BW_USERNAME` and `BW_PASSWORD`.
+**401 Unauthorized / No access token**
+Credentials are wrong, expired, or the OAuth2 token exchange failed. Double-check `BW_CLIENT_ID` and `BW_CLIENT_SECRET`.
 
 **422 / validation errors from API calls**
 Required fields are missing or formatted wrong. Check the parameter shapes — phone numbers must be in E.164 format (e.g. `+19195551234`). Application IDs are UUIDs.
@@ -362,10 +418,8 @@ Phone number lookup and report generation are async. Poll the status tool (`getL
 
 ## Limitations
 
-- **No Voice API tools** — call management (`listCalls`, `listCall`) is read-only; there are no tools to initiate or control live calls.
 - **No number ordering** — the server can look up number availability (via the number order guide resource) but doesn't have tools to purchase or provision numbers directly.
 - **Tools are read from live specs** — if Bandwidth's spec URLs are unreachable at startup, those API groups won't load. There's no local fallback.
 - **Tool filtering is all-or-nothing per name** — you can't partially expose a tool (e.g. read-only vs. write). Enable or exclude whole tools by name.
-- **No webhook registration** — the server makes outbound API calls but doesn't receive inbound callbacks or set up webhooks.
 - **`setCredentials` is session-scoped** — credentials set via the tool don't persist across server restarts. Set env vars for persistence.
 - **Claude Desktop resource limitation** — Claude Desktop has known issues reading MCP resources. If `resource://config` isn't accessible, pass credential-dependent parameters (account ID, application ID, phone number) manually in your prompts.

@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import List
 from fastmcp.resources import FunctionResource, HttpResource, Resource
 
-
 number_order_guide_resource = HttpResource(
     name="Bandwidth Number Order Guide",
     description="Bandwidth Number Order Guide",

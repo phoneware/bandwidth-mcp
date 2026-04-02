@@ -85,13 +85,14 @@ No auth required. Use this to create a new Bandwidth account from scratch.
 
 ---
 
-### Credentials (built-in tool, not from OpenAPI)
+### Credentials (built-in tools, not from OpenAPI)
 
 | Tool | Description |
 |---|---|
 | `setCredentials` | Set client ID and secret to authenticate via OAuth2. Account ID is discovered automatically. |
+| `clearCredentials` | Log out — clears stored credentials and access token. Authenticated tools will return 401 until you call `setCredentials` again. |
 
-Call this after completing Express Registration if credentials weren't set at startup.
+Call `setCredentials` after completing Express Registration if credentials weren't set at startup. Call `clearCredentials` to log out of the current session.
 
 ---
 

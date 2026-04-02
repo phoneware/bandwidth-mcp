@@ -3,6 +3,8 @@ import warnings
 from typing import Dict, List, Optional
 from argparse import ArgumentParser, Namespace
 
+from profiles import resolve_profile
+
 
 def load_config() -> Dict[str, str]:
     """Load Bandwidth configuration from environment variables."""
@@ -46,6 +48,11 @@ def _parse_cli_args(args: Optional[List[str]] = None) -> Namespace:
         help="Comma-separated list of tool names to disable.",
         type=str,
     )
+    parser.add_argument(
+        "--profile",
+        help="Named tool profile (or comma-separated profiles) to enable. Use 'full' for all tools.",
+        type=str,
+    )
 
     return parser.parse_known_args(args)[0]
 
@@ -69,10 +76,20 @@ def _parse_flags(cli_arg: Optional[str], env_var: str) -> Optional[List[str]]:
     return None
 
 
-def get_enabled_tools() -> Optional[List[str]]:
-    """Get the list of enabled tools from CLI args or environment variable."""
+def get_profile_tools() -> Optional[List[str]]:
+    """Get tool list from profile, if specified."""
     args = _parse_cli_args()
-    return _parse_flags(args.tools, "BW_MCP_TOOLS")
+    profile_str = args.profile or os.getenv("BW_MCP_PROFILE")
+    return resolve_profile(profile_str)
+
+
+def get_enabled_tools() -> Optional[List[str]]:
+    """Get the list of enabled tools from CLI args, env var, or profile."""
+    args = _parse_cli_args()
+    explicit = _parse_flags(args.tools, "BW_MCP_TOOLS")
+    if explicit:
+        return explicit
+    return get_profile_tools()
 
 
 def get_excluded_tools() -> Optional[List[str]]:

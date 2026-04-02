@@ -1,6 +1,8 @@
-"""MCP tools for reading callback events."""
+"""MCP tools for reading callback events and configuring webhooks."""
 
 from typing import Optional
+
+import httpx
 
 from event_store import EventStore
 
@@ -49,7 +51,58 @@ async def get_callback_events_flow(
     return {"events": cleaned, "count": len(cleaned)}
 
 
-def register_callback_tools(mcp, event_store: EventStore) -> None:
+async def configure_callbacks_flow(
+    config: dict,
+    application_id: str,
+    base_url: str,
+    types: Optional[list[str]] = None,
+) -> dict:
+    """Update a Bandwidth application's callback URLs to point at this server."""
+    if types is None:
+        types = ["messaging", "voice"]
+
+    token = config.get("BW_ACCESS_TOKEN")
+    account_id = config.get("BW_ACCOUNT_ID")
+    if not token or not account_id:
+        return {"error": "Not authenticated. Call setCredentials first."}
+
+    # Build the callback URL updates
+    update: dict = {}
+    if "messaging" in types:
+        update["callbackUrl"] = f"{base_url}/callbacks/messaging/inbound"
+        update["statusCallbackUrl"] = f"{base_url}/callbacks/messaging/status"
+    if "voice" in types:
+        update["callInitiatedCallbackUrl"] = f"{base_url}/callbacks/voice/answer"
+        update["callStatusCallbackUrl"] = f"{base_url}/callbacks/voice/disconnect"
+
+    api_url = f"https://api.bandwidth.com/api/v2/accounts/{account_id}/applications/{application_id}"
+
+    async with httpx.AsyncClient() as client:
+        response = await client.patch(
+            api_url,
+            json=update,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+        )
+
+    if response.status_code >= 400:
+        return {
+            "error": f"Failed to update application ({response.status_code})",
+            "details": response.text,
+        }
+
+    return {
+        "status": "configured",
+        "application_id": application_id,
+        "base_url": base_url,
+        "types": types,
+        "callbacks": update,
+    }
+
+
+def register_callback_tools(mcp, event_store: EventStore, config: dict = None) -> None:
     @mcp.tool(name="getInboundMessages")
     async def get_inbound_messages(
         phone_number: Optional[str] = None,
@@ -84,3 +137,23 @@ def register_callback_tools(mcp, event_store: EventStore) -> None:
         return await get_callback_events_flow(
             event_store, event_type, call_id, phone_number, since
         )
+
+    if config is not None:
+
+        @mcp.tool(name="configureCallbacks")
+        async def configure_callbacks(
+            application_id: str,
+            base_url: str,
+            types: Optional[list[str]] = None,
+        ) -> dict:
+            """Configure a Bandwidth application's callback URLs to point at this server.
+
+            Sets the application's webhook URLs so Bandwidth sends inbound messages
+            and voice events to this MCP server. One call and webhooks are wired.
+
+            Args:
+                application_id: The Bandwidth application ID to configure.
+                base_url: The public URL of this server (e.g. https://your-server.ngrok.io).
+                types: Which callback types to register. Default: ["messaging", "voice"].
+            """
+            return await configure_callbacks_flow(config, application_id, base_url, types)

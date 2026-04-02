@@ -21,7 +21,9 @@ class TestEventStore:
 
     def test_get_events_filtered_by_since(self):
         self.store.push("messaging.inbound", "+19195551234", {"text": "old"})
+        time.sleep(0.01)  # ensure timestamp separation
         cutoff = time.time()
+        time.sleep(0.01)
         self.store.push("messaging.inbound", "+19195551234", {"text": "new"})
         events = self.store.get_events(
             "messaging.inbound", key="+19195551234", since=cutoff

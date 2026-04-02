@@ -25,7 +25,7 @@ packages = ["specs", "tools"]
 "" = "src"
 
 [tool.setuptools.package-data]
-specs = ["*.yml"]
+specs = ["*.yml", "*.md"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

@@ -1,6 +1,6 @@
 import os
 import warnings
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from argparse import ArgumentParser, Namespace
 
 from profiles import resolve_profile
@@ -30,6 +30,20 @@ def load_config() -> Dict[str, str]:
             UserWarning,
         )
 
+    # Transport config
+    transport_vars = [
+        "BW_MCP_TRANSPORT",
+        "BW_MCP_HOST",
+        "BW_MCP_PORT",
+        "BW_MCP_AUTH_TOKEN",
+        "BW_MCP_BASE_URL",
+        "BW_VOICE_FALLBACK_NUMBER",
+    ]
+    for var in transport_vars:
+        value = os.environ.get(var)
+        if value:
+            config[var] = value
+
     return config
 
 
@@ -52,6 +66,17 @@ def _parse_cli_args(args: Optional[List[str]] = None) -> Namespace:
         "--profile",
         help="Named tool profile (or comma-separated profiles) to enable. Use 'full' for all tools.",
         type=str,
+    )
+    parser.add_argument(
+        "--transport",
+        help="Transport type: stdio (default), sse, or streamable-http.",
+        type=str,
+        choices=["stdio", "sse", "streamable-http"],
+    )
+    parser.add_argument(
+        "--port",
+        help="Port for HTTP transport (default: 8080).",
+        type=int,
     )
 
     return parser.parse_known_args(args)[0]
@@ -96,3 +121,13 @@ def get_excluded_tools() -> Optional[List[str]]:
     """Get the list of excluded tools from CLI args or environment variable."""
     args = _parse_cli_args()
     return _parse_flags(args.exclude_tools, "BW_MCP_EXCLUDE_TOOLS")
+
+
+def get_transport_config() -> Dict[str, Any]:
+    """Get transport configuration from CLI args and env vars."""
+    args = _parse_cli_args()
+    return {
+        "transport": args.transport or os.getenv("BW_MCP_TRANSPORT", "stdio"),
+        "host": os.getenv("BW_MCP_HOST", "0.0.0.0"),
+        "port": args.port or int(os.getenv("BW_MCP_PORT", "8080")),
+    }

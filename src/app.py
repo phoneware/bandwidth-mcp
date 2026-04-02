@@ -6,13 +6,23 @@ os.environ["FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER"] = "true"
 
 from fastmcp import FastMCP
 from servers import create_bandwidth_mcp, api_server_info, _create_server
-from config import load_config, get_enabled_tools, get_excluded_tools
+from config import (
+    load_config,
+    get_enabled_tools,
+    get_excluded_tools,
+    get_transport_config,
+)
 from server_utils import create_route_map_fn
 from tools.credentials import register_credentials_tools
+from tools.callbacks import register_callback_tools
+from tools.voice import register_voice_tools
 from instructions import build_instructions
+from event_store import EventStore
+from callbacks import create_callback_app
 
 mcp = FastMCP(name="Bandwidth MCP")
 _config = {}
+_event_store = EventStore()
 
 
 async def _reload_authenticated_servers():
@@ -57,6 +67,8 @@ async def setup(mcp: FastMCP = mcp):
     register_credentials_tools(
         mcp, _config, reload_callback=_reload_authenticated_servers
     )
+    register_callback_tools(mcp, _event_store)
+    register_voice_tools(mcp, _event_store)
 
     all_tools = await mcp.get_tools()
     mcp.instructions = build_instructions(_config, list(all_tools.keys()))
@@ -65,7 +77,20 @@ async def setup(mcp: FastMCP = mcp):
 def main():
     """Main function to run the Bandwidth MCP server."""
     asyncio.run(setup())
-    mcp.run()
+
+    transport_config = get_transport_config()
+    transport = transport_config["transport"]
+
+    if transport == "stdio":
+        mcp.run()
+    else:
+        callback_app = create_callback_app(_event_store)
+        mcp.mount("callbacks", callback_app)
+        mcp.run(
+            transport=transport,
+            host=transport_config["host"],
+            port=transport_config["port"],
+        )
 
 
 if __name__ == "__main__":

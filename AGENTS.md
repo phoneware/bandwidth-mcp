@@ -92,6 +92,36 @@ Call this after completing Express Registration if credentials weren't set at st
 
 ---
 
+### Callback Events (built-in tools)
+
+| Tool | Description |
+|---|---|
+| `getInboundMessages` | Get recent inbound SMS/MMS events. Filterable by phone number and timestamp. |
+| `getCallbackEvents` | Get all callback events (voice + messaging), filterable by type, call ID, phone number. |
+
+These tools read from the server's event store. Events are populated by Bandwidth webhooks when the server runs in hosted HTTP mode with callbacks configured.
+
+---
+
+### Voice & BXML (built-in tools)
+
+| Tool | Description |
+|---|---|
+| `generateBXML` | Generate valid BXML from verb descriptions. Auto-wraps SpeakSentence in Gather for barge-in. |
+| `respondToCallback` | Queue a BXML response for an active voice call. First-write-wins for multi-session safety. |
+
+#### Voice Call Flow
+
+1. Ensure a voice application is configured with callback URLs pointing at this server.
+2. Call `createCall` to initiate, or receive an inbound call.
+3. Call `getCallbackEvents` to read voice events (gather results with transcribed speech).
+4. Call `generateBXML` to build the next response.
+5. Call `respondToCallback` to deliver the BXML to the active call.
+
+Supported BXML verbs: SpeakSentence, Gather, Transfer, PlayAudio, Record, Pause, Hangup, Redirect, Bridge, Ring, SendDtmf, StartRecording, StopRecording, StartTranscription, StopTranscription.
+
+---
+
 ### Messaging
 
 Requires: `BW_ACCOUNT_ID`, `BW_MESSAGING_APPLICATION_ID`, `BW_NUMBER`
@@ -271,6 +301,23 @@ Prerequisites: `BW_ACCOUNT_ID`
 Prerequisites: `BW_ACCOUNT_ID`
 
 1. Call `validateAddress` directly. No setup steps needed.
+
+### Receive and Reply to an SMS
+
+Prerequisites: Hosted HTTP mode, `BW_MCP_BASE_URL` configured, callbacks configured on application.
+
+1. Call `getInboundMessages` to check for new messages.
+2. Read the sender's number and message text.
+3. Call `createMessage` with `to` set to the sender's number.
+
+### Handle a Voice Call
+
+Prerequisites: Hosted HTTP mode, voice application with callback URLs pointing at this server.
+
+1. Call `getCallbackEvents(event_type="voice.gather")` to read caller input.
+2. Call `generateBXML` with the verbs to speak and gather the next input.
+3. Call `respondToCallback` with the call ID and BXML.
+4. Repeat until the call ends.
 
 ---
 

@@ -25,6 +25,9 @@ async def test_instructions_set_after_setup(httpx_mock: HTTPXMock, monkeypatch):
         "phone-number-lookup-v2",
         "insights",
         "end-user-management",
+        "voice",
+        "numbers",
+        "toll-free-verification",
     ]:
         create_mock(httpx_mock, name)
 
@@ -49,6 +52,9 @@ async def test_callback_tools_available_after_setup(httpx_mock: HTTPXMock):
         "phone-number-lookup-v2",
         "insights",
         "end-user-management",
+        "voice",
+        "numbers",
+        "toll-free-verification",
     ]:
         create_mock(httpx_mock, name)
 

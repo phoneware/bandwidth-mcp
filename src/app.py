@@ -51,19 +51,22 @@ async def setup(mcp: FastMCP = mcp):
 
 def main():
     """Main function to run the Bandwidth MCP server."""
-    asyncio.run(setup())
+    try:
+        asyncio.run(setup())
 
-    transport_config = get_transport_config()
-    transport = transport_config["transport"]
+        transport_config = get_transport_config()
+        transport = transport_config["transport"]
 
-    if transport == "stdio":
-        mcp.run()
-    else:
-        mcp.run(
-            transport=transport,
-            host=transport_config["host"],
-            port=transport_config["port"],
-        )
+        if transport == "stdio":
+            mcp.run()
+        else:
+            mcp.run(
+                transport=transport,
+                host=transport_config["host"],
+                port=transport_config["port"],
+            )
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == "__main__":

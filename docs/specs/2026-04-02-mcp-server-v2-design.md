@@ -459,22 +459,11 @@ For structured input (account numbers, dates, names), the agent should:
 
 For free-form conversation, accept the ASR result and move on — confirmation loops for every sentence would be painful.
 
-#### Long Calls: Conversation Summarization
+#### Long Calls: Raw Event Storage
 
-After 10+ turns, the per-call conversation buffer gets large. The `getCallbackEvents` tool returns a summary of older turns plus the full text of recent ones:
+The server stores all callback events as-is — no summarization, no compression. The LLM client manages its own context window and decides what's relevant. The event store is a dumb buffer, not an editorial layer.
 
-```json
-{
-  "call_id": "abc123",
-  "summary": "Caller asked about order #4412. Agent confirmed it shipped yesterday.",
-  "recent_turns": [
-    {"role": "caller", "text": "When will it arrive?"},
-    {"role": "agent", "text": "It should be there by Thursday."}
-  ]
-}
-```
-
-The summarization happens in the event store, not the LLM — a simple sliding window that keeps the last N turns verbatim and compresses older ones into a running summary. The summary can be LLM-generated (via a background call) or rule-based (concatenate agent responses) depending on quality needs.
+`getCallbackEvents` returns raw turns for a call. If the LLM needs to trim context, that's its job.
 
 #### Graceful Degradation: Transfer Fallback
 
@@ -659,19 +648,21 @@ The `configureCallbacks` tool updates a Bandwidth application's callback URLs to
 
 ---
 
+## Decisions (from design review)
+
+| Question | Decision | Reasoning |
+|----------|----------|-----------|
+| Conversation summarization | **No.** Store raw events, LLM manages its own context. | The server is a buffer, not an editor. The LLM client is better at deciding what's relevant. |
+| Event store persistence | **In-memory.** | Simple, no dependencies, sufficient for MVP. Events are ephemeral by nature. |
+| Multi-tenant hosting | **Single-tenant.** One server per Bandwidth account. | No realistic scenario where multiple accounts share a server. Adds complexity for zero value. |
+| Relay vs callback server | **Callback server only.** Defer relay. | Hosted HTTP server can receive callbacks directly. Relay only matters for stdio/local setups — build it if/when that need arises. |
+| SSML support | **Light by default.** Auto-add pauses between sentences. Full SSML available via explicit verb fields. | Good default UX without requiring the agent to know SSML. |
+
 ## Open Questions
 
-1. **Conversation summarization strategy:** LLM-generated summaries are higher quality but add latency and cost. Rule-based (last N turns verbatim, older turns as "Caller asked about X, agent said Y") is fast and free. Start with rule-based?
+1. **Redirect chain limit:** Proposed 3 max (~2-3 seconds of buffer via redirect round-trips). When a voice gather callback arrives in agent-in-the-loop mode, the server responds with `<Redirect>` to buy time while the agent generates BXML. Each redirect is a network round-trip (~500ms-1s). After 3 redirects, fall back to a safe template. Should this be configurable per-deployment?
 
-2. **Redirect chain limit:** Proposed 3 max (~2-3s buffer). Is this enough for LLM inference on complex turns? Could make it configurable.
-
-3. **Event store persistence:** In-memory is fine for MVP, but events are lost on restart. Redis adds an operational dependency. SQLite is zero-dependency but adds disk I/O. Recommendation: in-memory for v1, SQLite for v2.
-
-4. **Multi-tenant hosting:** If multiple users share a hosted instance, events need to be scoped by auth token. The event store needs a tenant key. Skip for MVP (single-tenant), design for it.
-
-5. **Voice + Relay Service interaction:** The original platform design spec proposes a separate Go relay service for callback handling. This spec proposes handling callbacks directly on the MCP server. These are complementary — the relay is for stdio/local setups where the MCP server can't receive HTTP; the callback routes are for hosted setups. Both should work. Which to build first?
-
-6. **SSML support depth:** How much SSML should `generateBXML` inject? Options: none (caller controls TTS), light (auto-add pauses between sentences), full (prosody, emphasis, voice selection). Recommendation: light by default, full available via explicit verb fields.
+2. **Bandwidth application API access:** Does `configureCallbacks` need a different API endpoint or credential scope to update application callback URLs? Need to verify the Bandwidth Dashboard/Applications API supports this via the same Basic Auth credentials.
 
 ---
 

@@ -18,9 +18,9 @@ You have access to Bandwidth's communication APIs as MCP tools. Use them to send
 NO_CREDENTIALS_SECTION = """
 ## No Credentials Detected
 No API credentials are configured. You can either:
-1. Use Express Registration to create a new account:
-   createRegistration → sendVerificationCode → verifyRegistrationCode → setCredentials
-2. Ask the user to provide BW_USERNAME, BW_PASSWORD, and BW_ACCOUNT_ID."""
+1. Call **setCredentials** with a client ID and client secret. This authenticates via OAuth2, discovers your account ID automatically, and enables all authenticated tools.
+2. Use Express Registration to create a new account:
+   createRegistration → sendVerificationCode → verifyRegistrationCode → setCredentials"""
 
 MESSAGING_SECTION = """
 ## Sending Messages (SMS/MMS)
@@ -116,7 +116,7 @@ def build_instructions(config: dict[str, Any], loaded_tools: list[str]) -> str:
     """
     sections = [HEADER]
 
-    if not config.get("BW_USERNAME"):
+    if not config.get("BW_ACCESS_TOKEN"):
         sections.append(NO_CREDENTIALS_SECTION)
 
     tool_set = set(loaded_tools)

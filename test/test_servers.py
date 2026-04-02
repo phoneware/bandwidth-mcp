@@ -8,7 +8,7 @@ from src.servers import create_bandwidth_mcp, _create_server
 async def create_mcp_server(name=None, tools=None, excluded_tools=None):
     """Fixture to create and return a FastMCP instance."""
     mcp = FastMCP(name=name or "Test MCP")
-    config = {"BW_USERNAME": "test_user", "BW_PASSWORD": "test_pass"}
+    config = {"BW_ACCESS_TOKEN": "test-bearer-token"}
     enabled_tools = tools if tools is not None else []
     excluded_tools = excluded_tools if excluded_tools is not None else []
 
@@ -78,17 +78,17 @@ async def test_full_mcp_server_creation(tools, excluded_tools, httpx_mock: HTTPX
 spec_list = [
     (
         "https://dev.bandwidth.com/spec/multi-factor-auth.yml",
-        {"BW_USERNAME": "test_user_mfa", "BW_PASSWORD": "test_pass_mfa"},
+        {"BW_ACCESS_TOKEN": "test-token-mfa"},
         "https://mfa.bandwidth.com/api/v1/",
         {"generateMessagingCode", "generateVoiceCode", "verifyCode"},
-        "Basic dGVzdF91c2VyX21mYTp0ZXN0X3Bhc3NfbWZh",
+        "Bearer test-token-mfa",
     ),
     (
         "https://dev.bandwidth.com/spec/phone-number-lookup-v2.yml",
-        {"BW_USERNAME": "test_user_tnlookup", "BW_PASSWORD": "test_pass_tnlookup"},
+        {"BW_ACCESS_TOKEN": "test-token-lookup"},
         "https://api.bandwidth.com/v2/",
         {"createSyncLookup", "createAsyncBulkLookup", "getAsyncBulkLookup"},
-        "Basic dGVzdF91c2VyX3RubG9va3VwOnRlc3RfcGFzc190bmxvb2t1cA==",
+        "Bearer test-token-lookup",
     ),
 ]
 
@@ -133,4 +133,7 @@ async def test_create_server_no_servers_defined(httpx_mock: HTTPXMock):
     create_mock(httpx_mock, "no-servers")
 
     with pytest.raises(ValueError, match="has no servers defined"):
-        await _create_server("https://dev.bandwidth.com/spec/no-servers.yml")
+        await _create_server(
+            "https://dev.bandwidth.com/spec/no-servers.yml",
+            config={"BW_ACCESS_TOKEN": "test"},
+        )

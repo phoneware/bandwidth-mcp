@@ -1,7 +1,7 @@
 """Integration tests verifying the full MCP server setup."""
 
-import os
 import pytest
+from unittest.mock import AsyncMock, patch
 from fastmcp import FastMCP
 from pytest_httpx import HTTPXMock
 from utils import create_mock
@@ -10,9 +10,14 @@ from utils import create_mock
 @pytest.mark.asyncio
 async def test_instructions_set_after_setup(httpx_mock: HTTPXMock, monkeypatch):
     """After setup, mcp.instructions is set and contains relevant content."""
-    monkeypatch.setenv("BW_USERNAME", "test_user")
-    monkeypatch.setenv("BW_PASSWORD", "test_pass")
-    monkeypatch.setenv("BW_ACCOUNT_ID", "9900000")
+    monkeypatch.setenv("BW_CLIENT_ID", "CLI-test")
+    monkeypatch.setenv("BW_CLIENT_SECRET", "test-secret")
+
+    mock_token = {
+        "access_token": "test-bearer-token",
+        "accounts": ["12345"],
+        "token_type": "bearer",
+    }
 
     for name in [
         "messaging",
@@ -23,10 +28,12 @@ async def test_instructions_set_after_setup(httpx_mock: HTTPXMock, monkeypatch):
     ]:
         create_mock(httpx_mock, name)
 
-    from src.app import setup
+    with patch("oauth.get_oauth_token", new_callable=AsyncMock) as mock_oauth:
+        mock_oauth.return_value = mock_token
+        from src.app import setup
 
-    test_mcp = FastMCP(name="Integration Test")
-    await setup(test_mcp)
+        test_mcp = FastMCP(name="Integration Test")
+        await setup(test_mcp)
 
     assert test_mcp.instructions is not None
     assert "Bandwidth MCP Server" in test_mcp.instructions

@@ -1,30 +1,41 @@
+"""setCredentials tool — OAuth2 client credentials flow.
+
+Takes a client ID and secret, exchanges them for a Bearer token,
+extracts account IDs from JWT claims, and reloads authenticated servers.
+"""
+
 from typing import Callable, Optional
+
+from oauth import get_oauth_token
 
 
 async def set_credentials_flow(
     config: dict,
-    username: str,
-    password: str,
-    account_id: Optional[str] = None,
+    client_id: str,
+    client_secret: str,
     reload_callback: Optional[Callable] = None,
 ) -> dict:
-    """Update the shared config with new credentials and reload authenticated servers."""
-    config["BW_USERNAME"] = username
-    config["BW_PASSWORD"] = password
-    if account_id:
-        config["BW_ACCOUNT_ID"] = account_id
+    """Authenticate via OAuth2 and update the shared config."""
+    token_data = await get_oauth_token(client_id, client_secret)
+
+    config["BW_CLIENT_ID"] = client_id
+    config["BW_CLIENT_SECRET"] = client_secret
+    config["BW_ACCESS_TOKEN"] = token_data["access_token"]
+
+    accounts = token_data["accounts"]
+    if accounts:
+        config["BW_ACCOUNT_ID"] = accounts[0]
 
     if reload_callback:
         await reload_callback()
 
-    result = {
+    return {
         "status": "credentials_set",
-        "username": username,
-        "message": "Credentials set. Authenticated API tools are now available.",
+        "client_id": client_id,
+        "accounts": accounts,
+        "active_account": accounts[0] if accounts else None,
+        "message": "Authenticated. Authenticated API tools are now available.",
     }
-    if account_id:
-        result["account_id"] = account_id
-    return result
 
 
 def register_credentials_tools(
@@ -36,24 +47,21 @@ def register_credentials_tools(
 
     @mcp.tool(name="setCredentials")
     async def set_credentials(
-        username: str,
-        password: str,
-        account_id: Optional[str] = None,
+        client_id: str,
+        client_secret: str,
     ) -> dict:
-        """Set Bandwidth API credentials to enable authenticated tools.
+        """Authenticate with Bandwidth using OAuth2 client credentials.
 
-        Call this with your API username and password. Account ID is optional —
-        provide it if you have it, or discover it via the API after authenticating.
+        Exchanges your client ID and secret for a Bearer token, discovers
+        your account ID automatically, and enables all authenticated API tools.
 
         Args:
-            username: Bandwidth API username (or client ID)
-            password: Bandwidth API password (or client secret)
-            account_id: Bandwidth account ID (optional)
+            client_id: Bandwidth API client ID (e.g. CLI-xxxxxxxx-xxxx-...)
+            client_secret: Bandwidth API client secret
         """
         return await set_credentials_flow(
             config=config,
-            username=username,
-            password=password,
-            account_id=account_id,
+            client_id=client_id,
+            client_secret=client_secret,
             reload_callback=reload_callback,
         )

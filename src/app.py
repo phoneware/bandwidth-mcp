@@ -9,6 +9,7 @@ from servers import create_bandwidth_mcp, api_server_info, _create_server
 from config import load_config, get_enabled_tools, get_excluded_tools
 from server_utils import create_route_map_fn
 from tools.credentials import register_credentials_tools
+from instructions import build_instructions
 
 mcp = FastMCP(name="Bandwidth MCP")
 _config = {}
@@ -39,6 +40,9 @@ async def _reload_authenticated_servers():
         except Exception as e:
             warnings.warn(f"Failed to load {api_name} after credential update: {e}")
 
+    all_tools = await mcp.get_tools()
+    mcp.instructions = build_instructions(_config, list(all_tools.keys()))
+
 
 async def setup(mcp: FastMCP = mcp):
     """Setup the Bandwidth MCP server with tools and resources."""
@@ -50,7 +54,12 @@ async def setup(mcp: FastMCP = mcp):
     print("Setting up Bandwidth MCP server...")
     await create_bandwidth_mcp(mcp, enabled_tools, excluded_tools, _config)
 
-    register_credentials_tools(mcp, _config, reload_callback=_reload_authenticated_servers)
+    register_credentials_tools(
+        mcp, _config, reload_callback=_reload_authenticated_servers
+    )
+
+    all_tools = await mcp.get_tools()
+    mcp.instructions = build_instructions(_config, list(all_tools.keys()))
 
 
 def main():

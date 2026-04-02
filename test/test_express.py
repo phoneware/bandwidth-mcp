@@ -11,7 +11,7 @@ async def test_express_server_has_three_tools(httpx_mock):
     server = await _create_server(
         url="https://dev.bandwidth.com/spec/express.yml",
         config={},
-        requires_auth=False,
+
     )
     tools = await server.get_tools()
     assert len(tools) == 3
@@ -25,7 +25,7 @@ async def test_express_server_tool_names(httpx_mock):
     server = await _create_server(
         url="https://dev.bandwidth.com/spec/express.yml",
         config={},
-        requires_auth=False,
+
     )
     tools = await server.get_tools()
     tool_names = sorted(tools.keys())
@@ -44,7 +44,7 @@ async def test_express_server_no_auth_header(httpx_mock):
     server = await _create_server(
         url="https://dev.bandwidth.com/spec/express.yml",
         config={},
-        requires_auth=False,
+
     )
     tools = await server.get_tools()
     assert len(tools) == 3
@@ -61,7 +61,7 @@ async def test_create_registration_tool_parameters(httpx_mock):
     server = await _create_server(
         url="https://dev.bandwidth.com/spec/express.yml",
         config={},
-        requires_auth=False,
+
     )
     tools = await server.get_tools()
     create_reg = tools["createRegistration"]
@@ -90,7 +90,7 @@ async def test_verify_code_tool_parameters(httpx_mock):
     server = await _create_server(
         url="https://dev.bandwidth.com/spec/express.yml",
         config={},
-        requires_auth=False,
+
     )
     tools = await server.get_tools()
     verify = tools["verifyRegistrationCode"]

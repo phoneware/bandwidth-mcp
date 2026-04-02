@@ -48,27 +48,26 @@ async def _create_server(
     url: str,
     route_map_fn: Optional[Callable] = None,
     config: Optional[Dict[str, Any]] = None,
-    requires_auth: bool = True,
 ) -> FastMCP:
-    """Create an MCP server from the provided spec URL and credentials."""
+    """Create an MCP server from the provided spec URL and credentials.
+
+    Always registers tools regardless of auth state. Auth is checked at
+    call time — unauthenticated calls get a 401 from the API, not a
+    startup failure.
+    """
     if config is None:
         config = {}
-    # Fetch and clean the OpenAPI spec
     spec_object = await fetch_openapi_spec(url)
 
-    # Validate spec structure
     if "servers" not in spec_object or not spec_object["servers"]:
         raise ValueError(f"OpenAPI spec from {url} has no servers defined")
 
     base_url = spec_object["servers"][0]["url"]
 
     headers = {"User-Agent": "Bandwidth MCP Server"}
-    if requires_auth:
-        if "BW_ACCESS_TOKEN" not in config:
-            raise ValueError(
-                "No access token. Call setCredentials with your client ID and secret first."
-            )
-        headers["Authorization"] = f"Bearer {config['BW_ACCESS_TOKEN']}"
+    token = config.get("BW_ACCESS_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     client = AsyncClient(base_url=base_url, headers=headers)
 
@@ -108,7 +107,6 @@ async def create_bandwidth_mcp(
 
     for api_name, api_info in api_server_info.items():
         try:
-            requires_auth = api_info.get("requires_auth", True)
             # Merge per-spec exclusions (only when not using explicit enabled_tools)
             spec_excludes = api_info.get("exclude_tools", [])
             if spec_excludes and not enabled_tools:
@@ -120,7 +118,6 @@ async def create_bandwidth_mcp(
                 api_info["url"],
                 route_map_fn=spec_route_map_fn,
                 config=config,
-                requires_auth=requires_auth,
             )
             await mcp.import_server(server)
         except Exception as e:

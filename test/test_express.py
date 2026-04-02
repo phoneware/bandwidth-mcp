@@ -29,7 +29,11 @@ async def test_express_server_tool_names(httpx_mock):
     )
     tools = await server.get_tools()
     tool_names = sorted(tools.keys())
-    assert tool_names == ["createRegistration", "sendVerificationCode", "verifyRegistrationCode"]
+    assert tool_names == [
+        "createRegistration",
+        "sendVerificationCode",
+        "verifyRegistrationCode",
+    ]
 
 
 @pytest.mark.asyncio
@@ -71,7 +75,10 @@ async def test_create_registration_tool_parameters(httpx_mock):
     assert "firstName" in params["properties"]
     assert "lastName" in params["properties"]
     assert set(params.get("required", [])) == {
-        "phoneNumber", "email", "firstName", "lastName"
+        "phoneNumber",
+        "email",
+        "firstName",
+        "lastName",
     }
 
 

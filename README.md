@@ -17,11 +17,10 @@ cd mcp-server
 ### Prerequisites
 
 In order to use the Bandwidth MCP Server, you'll need the following things, set as environment variables.
-- Valid Bandwidth API Credentials
-    - This will be the username and password of your Bandwidth API user
+- Valid Bandwidth OAuth2 Client Credentials
+    - You will need a client ID and client secret for your Bandwidth API application
     - For more info on creating API credentials, see our [Credentials](https://dev.bandwidth.com/docs/credentials) page
-- Bandwidth Account ID
-    - The ID of the account you'd like to make API calls on behalf of
+- Your account ID is auto-discovered from JWT claims after authentication — you do not need to provide it
 
 ### Configuration
 
@@ -33,14 +32,14 @@ The server will respect both system environment variables and those configured v
 The following variables will be required to use the server:
 
 ```sh
-BW_USERNAME     # Your Bandwidth API User Username
-BW_PASSWORD     # Your Bandwidth API User Password
+BW_CLIENT_ID     # Your Bandwidth OAuth2 client ID
+BW_CLIENT_SECRET # Your Bandwidth OAuth2 client secret
 ```
 
 The following variables are optional or conditionally required:
 
 ```sh
-BW_ACCOUNT_ID               # Your Bandwidth Account ID. Required for most API operations.
+BW_ACCOUNT_ID               # Your Bandwidth Account ID. Optional — auto-discovered from JWT claims after authentication.
 BW_NUMBER                   # A valid phone number on your Bandwidth account. Used with our Messaging and MFA APIs. Must be in E164 format.
 BW_MESSAGING_APPLICATION_ID # A Bandwidth Messaging Application ID. Used with our Messaging and MFA APIs.
 BW_VOICE_APPLICATION_ID     # A Bandwidth Voice Application ID. Used with our MFA API.
@@ -137,8 +136,8 @@ Then follow the prompts like the example below.
             "command":"uvx",
             "args": ["--from", "/path/to/mcp-server", "start"],
             "env": {
-                "BW_USERNAME": "<insert-bw-username>",
-                "BW_PASSWORD": "<insert-bw-password>",
+                "BW_CLIENT_ID": "<insert-bw-client-id>",
+                "BW_CLIENT_SECRET": "<insert-bw-client-secret>",
                 "BW_MCP_TOOLS": "tools,to,enable",
                 "BW_MCP_EXCLUDE_TOOLS": "tools,to,exclude",
             }
@@ -167,8 +166,8 @@ uvx --from /path/to/mcp-server start
             "command": "uvx",
             "args": ["--from", "/path/to/mcp-server", "start"],
             "env": {
-                "BW_USERNAME": "<insert-bw-username>",
-                "BW_PASSWORD": "<insert-bw-password>",
+                "BW_CLIENT_ID": "<insert-bw-client-id>",
+                "BW_CLIENT_SECRET": "<insert-bw-client-secret>",
                 "BW_MCP_TOOLS": "tools,to,enable",
                 "BW_MCP_EXCLUDE_TOOLS": "tools,to,exclude",
             }
@@ -192,8 +191,8 @@ uvx --from /path/to/mcp-server start
             "command": "uvx",
             "args": ["--from", "/path/to/mcp-server", "start"],
             "env": {
-                "BW_USERNAME": "<insert-bw-username>",
-                "BW_PASSWORD": "<insert-bw-password>",
+                "BW_CLIENT_ID": "<insert-bw-client-id>",
+                "BW_CLIENT_SECRET": "<insert-bw-client-secret>",
                 "BW_MCP_TOOLS": "tools,to,enable",
                 "BW_MCP_EXCLUDE_TOOLS": "tools,to,exclude",
             }
@@ -248,9 +247,8 @@ Run the server over HTTP to enable remote access and webhook callbacks:
 BW_MCP_TRANSPORT=streamable-http \
 BW_MCP_PORT=8080 \
 BW_MCP_BASE_URL=https://your-server.example.com \
-BW_USERNAME=your_username \
-BW_PASSWORD=your_password \
-BW_ACCOUNT_ID=your_account_id \
+BW_CLIENT_ID=your_client_id \
+BW_CLIENT_SECRET=your_client_secret \
 python src/app.py
 ```
 
@@ -275,7 +273,7 @@ Profiles set via `BW_MCP_PROFILE` env var or `--profile` CLI flag. Use `BW_MCP_T
 - `sendVerificationCode` - Send SMS verification code
 - `verifyRegistrationCode` - Verify phone number with SMS code
 
-> **Note:** Express Registration does not require authentication. These tools work without `BW_USERNAME`/`BW_PASSWORD`.
+> **Note:** Express Registration does not require authentication. These tools work without authentication.
 
 ## **Multi-Factor Authentication (MFA)**
 - `generateMessagingCode` - Send MFA code via SMS

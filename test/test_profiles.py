@@ -11,7 +11,7 @@ def test_resolve_single_profile():
 def test_resolve_combined_profiles():
     tools = resolve_profile("messaging,lookup")
     assert "createMessage" in tools
-    assert "createLookup" in tools
+    assert "createSyncLookup" in tools
 
 
 def test_resolve_full_profile():

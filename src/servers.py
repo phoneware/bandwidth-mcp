@@ -15,7 +15,9 @@ from server_utils import (
 
 _SPECS_DIR = Path(specs.__file__).parent
 
-api_server_info: Dict[str, Dict[str, Any]] = {
+# Default API specs — loaded unless a profile overrides them.
+# Numbers is opt-in only (343 tools, most niche) via BW_MCP_PROFILE=numbers.
+_DEFAULT_SPECS: Dict[str, Dict[str, Any]] = {
     "messaging": {"url": "https://dev.bandwidth.com/spec/messaging.yml"},
     "multi-factor-auth": {
         "url": "https://dev.bandwidth.com/spec/multi-factor-auth.yml"
@@ -32,16 +34,31 @@ api_server_info: Dict[str, Dict[str, Any]] = {
     "end-user-management": {
         "url": "https://dev.bandwidth.com/spec/end-user-management.yml"
     },
-    "numbers": {"url": "https://dev.bandwidth.com/spec/numbers.yml"},
     "toll-free-verification": {
         "url": "https://dev.bandwidth.com/spec/toll-free-verification.yml"
     },
     "express-registration": {
         # Bundled locally — not yet published to dev.bandwidth.com
         "url": str(_SPECS_DIR / "express.yml"),
-        "requires_auth": False,
     },
 }
+
+# Opt-in specs — only loaded when explicitly requested via profile or env var.
+_OPTIONAL_SPECS: Dict[str, Dict[str, Any]] = {
+    "numbers": {"url": "https://dev.bandwidth.com/spec/numbers.yml"},
+}
+
+
+def get_api_server_info(include_numbers: bool = False) -> Dict[str, Dict[str, Any]]:
+    """Get the API server info dict, optionally including heavy specs."""
+    info = dict(_DEFAULT_SPECS)
+    if include_numbers:
+        info.update(_OPTIONAL_SPECS)
+    return info
+
+
+# For backward compat with imports
+api_server_info = _DEFAULT_SPECS
 
 
 async def _create_server(

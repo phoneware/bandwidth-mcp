@@ -3,7 +3,7 @@ import warnings
 from typing import Any, Dict, List, Optional
 from argparse import ArgumentParser, Namespace
 
-from profiles import resolve_profile
+from profiles import resolve_profile, DEFAULT_TOOLS
 
 
 def load_config() -> Dict[str, Any]:
@@ -127,12 +127,20 @@ def get_profile_tools() -> Optional[List[str]]:
 
 
 def get_enabled_tools() -> Optional[List[str]]:
-    """Get the list of enabled tools from CLI args, env var, or profile."""
+    """Get the list of enabled tools from CLI args, env var, or profile.
+
+    Priority: --tools > BW_MCP_TOOLS > --profile > BW_MCP_PROFILE > default profile.
+    Use BW_MCP_PROFILE=full to load everything.
+    """
     args = _parse_cli_args()
     explicit = _parse_flags(args.tools, "BW_MCP_TOOLS")
     if explicit:
         return explicit
-    return get_profile_tools()
+    profile_tools = get_profile_tools()
+    if profile_tools is not None:
+        return profile_tools
+    # No explicit config — use the default curated set
+    return DEFAULT_TOOLS
 
 
 def get_excluded_tools() -> Optional[List[str]]:

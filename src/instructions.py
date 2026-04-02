@@ -17,11 +17,21 @@ You have access to Bandwidth's communication APIs as MCP tools. Everything you n
 - All tools are listed in your tool list. If you need to discover account resources (applications, phone numbers), use the API tools directly — they're already registered."""
 
 NO_CREDENTIALS_SECTION = """
-## No Credentials Detected
-No API credentials are configured. You can either:
-1. Call **setCredentials** with a client ID and client secret. This authenticates via OAuth2, discovers your account ID automatically, and enables all authenticated tools.
-2. Use Express Registration to create a new account:
-   createRegistration → sendVerificationCode → verifyRegistrationCode → setCredentials"""
+## Not Authenticated
+No API credentials were provided at startup. All tools are available but API calls will return 401.
+
+**To authenticate:** The user needs to add credentials to their MCP server configuration and restart:
+```json
+{
+  "env": {
+    "BW_CLIENT_ID": "CLI-xxxxxxxx-xxxx-...",
+    "BW_CLIENT_SECRET": "your-secret-here"
+  }
+}
+```
+Tell the user to add these to their MCP config and restart the server.
+
+Alternatively, for new accounts: use Express Registration (createRegistration → sendVerificationCode → verifyRegistrationCode), then call setCredentials with the new credentials."""
 
 MESSAGING_SECTION = """
 ## Sending a Message (step by step)

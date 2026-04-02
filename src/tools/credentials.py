@@ -1,21 +1,36 @@
-"""setCredentials tool — OAuth2 client credentials flow.
+"""Credential management tools — login (OAuth2) and logout.
 
-Takes a client ID and secret, exchanges them for a Bearer token,
-extracts account IDs from JWT claims, and reloads authenticated servers.
+setCredentials: Takes a client ID and secret, exchanges them for a Bearer
+token, extracts account IDs from JWT claims, and reloads authenticated servers.
+
+clearCredentials: Removes stored credentials and access token so that
+authenticated API tools return 401 until the user logs in again.
 """
 
-from typing import Callable, Optional
+from typing import Optional
 
 from oauth import get_oauth_token
+
+_AUTH_KEYS = [
+    "BW_CLIENT_ID",
+    "BW_CLIENT_SECRET",
+    "BW_ACCESS_TOKEN",
+    "BW_ACCOUNT_ID",
+]
 
 
 async def set_credentials_flow(
     config: dict,
     client_id: str,
     client_secret: str,
-    reload_callback: Optional[Callable] = None,
 ) -> dict:
-    """Authenticate via OAuth2 and update the shared config."""
+    """Authenticate via OAuth2 and update the shared config.
+
+    Note: This updates the token in config, but tools created at startup
+    already have their httpx client headers set. For full effect, the user
+    should add credentials to their MCP config and restart the server.
+    This tool is primarily useful for express registration flows.
+    """
     token_data = await get_oauth_token(client_id, client_secret)
 
     config["BW_CLIENT_ID"] = client_id
@@ -26,24 +41,34 @@ async def set_credentials_flow(
     if accounts:
         config["BW_ACCOUNT_ID"] = accounts[0]
 
-    if reload_callback:
-        await reload_callback()
-
     return {
         "status": "credentials_set",
         "client_id": client_id,
         "accounts": accounts,
         "active_account": accounts[0] if accounts else None,
-        "message": "Authenticated. Authenticated API tools are now available.",
+        "message": "Authenticated. For best results, add BW_CLIENT_ID and BW_CLIENT_SECRET to your MCP server config and restart.",
+    }
+
+
+def clear_credentials_flow(config: dict) -> dict:
+    """Remove stored credentials and access token from the shared config."""
+    removed = [key for key in _AUTH_KEYS if key in config]
+    for key in _AUTH_KEYS:
+        config.pop(key, None)
+    config.pop("_authenticated_servers_loaded", None)
+
+    return {
+        "status": "logged_out",
+        "cleared": removed,
+        "message": "Credentials cleared. Authenticated API tools will return 401 until you call setCredentials again.",
     }
 
 
 def register_credentials_tools(
     mcp,
     config: dict,
-    reload_callback: Optional[Callable] = None,
 ):
-    """Register the setCredentials tool on the MCP server."""
+    """Register the setCredentials and clearCredentials tools on the MCP server."""
 
     @mcp.tool(name="setCredentials")
     async def set_credentials(
@@ -52,8 +77,11 @@ def register_credentials_tools(
     ) -> dict:
         """Authenticate with Bandwidth using OAuth2 client credentials.
 
-        Exchanges your client ID and secret for a Bearer token, discovers
-        your account ID automatically, and enables all authenticated API tools.
+        Exchanges your client ID and secret for a Bearer token and discovers
+        your account ID automatically. Primarily for express registration flows.
+
+        For normal usage, add BW_CLIENT_ID and BW_CLIENT_SECRET to your MCP
+        server configuration so authentication happens at startup.
 
         Args:
             client_id: Bandwidth API client ID (e.g. CLI-xxxxxxxx-xxxx-...)
@@ -63,5 +91,14 @@ def register_credentials_tools(
             config=config,
             client_id=client_id,
             client_secret=client_secret,
-            reload_callback=reload_callback,
         )
+
+    @mcp.tool(name="clearCredentials")
+    async def clear_credentials() -> dict:
+        """Log out of Bandwidth by clearing stored credentials.
+
+        Removes the client ID, client secret, access token, and account ID
+        from the current session. Authenticated API tools will return 401
+        until you call setCredentials again.
+        """
+        return clear_credentials_flow(config)

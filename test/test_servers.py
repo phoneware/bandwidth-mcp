@@ -120,7 +120,4 @@ async def test_create_server_no_servers_defined(httpx_mock: HTTPXMock):
     create_mock(httpx_mock, "no-servers")
 
     with pytest.raises(ValueError, match="has no servers defined"):
-        await _create_server(
-            "https://dev.bandwidth.com/spec/no-servers.yml",
-            config={"BW_ACCESS_TOKEN": "test"},
-        )
+        await _create_server("https://dev.bandwidth.com/spec/no-servers.yml")

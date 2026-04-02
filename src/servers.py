@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastmcp import FastMCP
 from httpx import AsyncClient
 from typing import Dict, List, Optional, Callable, Any
@@ -9,6 +11,8 @@ from server_utils import (
     fetch_openapi_spec,
     print_server_info,
 )
+
+_SPECS_DIR = Path(__file__).parent / "specs"
 
 api_server_info: Dict[str, Dict[str, Any]] = {
     "messaging": {"url": "https://dev.bandwidth.com/spec/messaging.yml"},
@@ -23,7 +27,8 @@ api_server_info: Dict[str, Dict[str, Any]] = {
         "url": "https://dev.bandwidth.com/spec/end-user-management.yml"
     },
     "express-registration": {
-        "url": "https://dev.bandwidth.com/spec/express.yml",
+        # Bundled locally — not yet published to dev.bandwidth.com
+        "url": str(_SPECS_DIR / "express.yml"),
         "requires_auth": False,
     },
 }
@@ -50,7 +55,9 @@ async def _create_server(
     headers = {"User-Agent": "Bandwidth MCP Server"}
     if requires_auth:
         if "BW_USERNAME" not in config or "BW_PASSWORD" not in config:
-            raise ValueError("BW_USERNAME and BW_PASSWORD required for authenticated APIs")
+            raise ValueError(
+                "BW_USERNAME and BW_PASSWORD required for authenticated APIs"
+            )
         auth_b64 = create_auth_header(config["BW_USERNAME"], config["BW_PASSWORD"])
         headers["Authorization"] = f"Basic {auth_b64}"
 

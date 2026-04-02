@@ -124,7 +124,19 @@ def _clean_openapi_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def fetch_openapi_spec(url: str) -> Dict[str, Any]:
-    """Fetch and parse OpenAPI spec from URL, with local cache fallback."""
+    """Fetch and parse OpenAPI spec from URL or local file, with cache fallback."""
+    # Local file path — read directly, no caching needed
+    local_path = Path(url)
+    if local_path.exists():
+        try:
+            spec_object = yaml.safe_load(local_path.read_text(encoding="utf-8"))
+            if not spec_object:
+                raise ValueError(f"Empty or invalid YAML spec from {url}")
+            return _clean_openapi_spec(spec_object)
+        except yaml.YAMLError as e:
+            raise RuntimeError(f"Failed to parse local spec {url}: {e}") from e
+
+    # Remote URL — fetch, cache, fallback
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url)

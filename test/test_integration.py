@@ -32,14 +32,13 @@ async def test_instructions_set_after_setup(httpx_mock: HTTPXMock, monkeypatch):
 
     with patch("oauth.get_oauth_token", new_callable=AsyncMock) as mock_oauth:
         mock_oauth.return_value = mock_token
-        from src.app import setup
+        from src.app import lifespan
 
         test_mcp = FastMCP(name="Integration Test")
-        await setup(test_mcp)
-
-    assert test_mcp.instructions is not None
-    assert "Bandwidth MCP Server" in test_mcp.instructions
-    assert "createMessage" in test_mcp.instructions
+        async with lifespan(test_mcp):
+            assert test_mcp.instructions is not None
+            assert "Bandwidth MCP Server" in test_mcp.instructions
+            assert "createMessage" in test_mcp.instructions
 
 
 @pytest.mark.asyncio
@@ -63,14 +62,13 @@ async def test_callback_tools_available_after_setup(httpx_mock: HTTPXMock, monke
     ]:
         create_mock(httpx_mock, name)
 
-    from src.app import setup
+    from src.app import lifespan
 
     test_mcp = FastMCP(name="Integration Test")
-    await setup(test_mcp)
-
-    tools = await test_mcp.get_tools()
-    assert "getInboundMessages" in tools
-    assert "getCallbackEvents" in tools
-    assert "generateBXML" in tools
-    assert "respondToCallback" in tools
-    assert "setCredentials" in tools
+    async with lifespan(test_mcp):
+        tools = await test_mcp.get_tools()
+        assert "getInboundMessages" in tools
+        assert "getCallbackEvents" in tools
+        assert "generateBXML" in tools
+        assert "respondToCallback" in tools
+        assert "setCredentials" in tools

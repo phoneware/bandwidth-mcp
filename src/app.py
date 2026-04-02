@@ -68,7 +68,7 @@ async def setup(mcp: FastMCP = mcp):
     register_credentials_tools(
         mcp, _config, reload_callback=_reload_authenticated_servers
     )
-    register_callback_tools(mcp, _event_store)
+    register_callback_tools(mcp, _event_store, _config)
     register_voice_tools(mcp, _event_store)
     register_callback_routes(mcp, _event_store)
 

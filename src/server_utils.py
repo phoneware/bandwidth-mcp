@@ -83,12 +83,92 @@ def create_route_map_fn(
     return route_map_fn
 
 
+def _fix_malformed_refs(obj: Any) -> Any:
+    """Fix malformed $ref strings in OpenAPI specs.
+
+    Bandwidth's numbers spec has $refs as bare strings like:
+      "$ref:'#/components/schemas/Foo'"
+    instead of proper dicts like:
+      {"$ref": "#/components/schemas/Foo"}
+    """
+    if isinstance(obj, str) and obj.startswith("$ref:"):
+        # Extract the ref path from malformed string
+        ref_path = obj.split(":", 1)[1].strip("'\"")
+        return {"$ref": ref_path}
+    if isinstance(obj, dict):
+        for k, v in list(obj.items()):
+            obj[k] = _fix_malformed_refs(v)
+    elif isinstance(obj, list):
+        for i, item in enumerate(obj):
+            obj[i] = _fix_malformed_refs(item)
+    return obj
+
+
+def _fix_response_descriptions(obj: Any) -> Any:
+    """Fix responses missing 'description' field (required by OpenAPI 3.x).
+
+    Bandwidth's numbers spec has responses like:
+      204: {content: {description: "No Content"}}
+    instead of:
+      204: {description: "No Content"}
+    """
+    if isinstance(obj, dict) and "responses" in obj:
+        for code, response in obj["responses"].items():
+            if isinstance(response, dict) and "description" not in response:
+                # Try to extract description from content
+                if "content" in response and isinstance(response["content"], dict):
+                    desc = response["content"].get("description", str(code))
+                    if isinstance(desc, str):
+                        response["description"] = desc
+                        del response["content"]
+                        continue
+                response["description"] = str(code)
+    if isinstance(obj, dict):
+        for v in obj.values():
+            _fix_response_descriptions(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            _fix_response_descriptions(item)
+    return obj
+
+
+def _fix_misplaced_allof(obj: Any) -> Any:
+    """Fix allOf misplaced inside 'properties' instead of at schema level.
+
+    Bandwidth's numbers spec has schemas like:
+      {properties: {allOf: [...], type: 'object'}}
+    where allOf should be a sibling of properties, not a child:
+      {allOf: [...], type: 'object'}
+    """
+    if isinstance(obj, dict):
+        if "properties" in obj and isinstance(obj["properties"], dict):
+            props = obj["properties"]
+            if "allOf" in props and isinstance(props["allOf"], list):
+                # Hoist allOf from properties to the schema level
+                obj["allOf"] = props.pop("allOf")
+                # Move type up too if it's in properties
+                if "type" in props and not any(
+                    k not in ("allOf", "type", "xml") for k in props
+                ):
+                    obj.setdefault("type", props.pop("type", "object"))
+                    if "xml" in props:
+                        obj.setdefault("xml", props.pop("xml"))
+                    if not props:
+                        del obj["properties"]
+        for v in obj.values():
+            _fix_misplaced_allof(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            _fix_misplaced_allof(item)
+    return obj
+
+
 def _clean_openapi_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
-    """Recursively clean OpenAPI spec:
-    - Remove all callbacks
-    - Remove all 4xx/5xx responses
-    - Remove any field starting with 'x-'
-    - Remove all path resources that start with 'x-'
+    """Clean and patch OpenAPI spec for compatibility.
+
+    - Remove callbacks, 4xx/5xx responses, x- fields
+    - Fix malformed $ref strings (bare strings → proper dicts)
+    - Fix responses missing required 'description' field
     """
     cleaned_spec = copy.deepcopy(spec)
 
@@ -120,7 +200,12 @@ def _clean_openapi_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
                 _clean(item)
         return obj
 
-    return _clean(cleaned_spec)
+    _clean(cleaned_spec)
+    _fix_malformed_refs(cleaned_spec)
+    _fix_response_descriptions(cleaned_spec)
+    _fix_misplaced_allof(cleaned_spec)
+
+    return cleaned_spec
 
 
 async def fetch_openapi_spec(url: str) -> Dict[str, Any]:

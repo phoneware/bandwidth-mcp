@@ -11,7 +11,9 @@ number_order_guide_resource = HttpResource(
     url="https://dev.bandwidth.com/docs/numbers/guides/searchingForNumbers.md",
 )
 
-_agents_md_path = Path(__file__).parent.parent / "AGENTS.md"
+import specs
+
+_agents_md_path = Path(specs.__file__).parent / "AGENTS.md"
 
 mcp_agent_reference_resource = FunctionResource(
     name="Bandwidth MCP Agent Reference",

@@ -1,6 +1,6 @@
 [project]
 name = "bw-mcp-server"
-version = "0.2.0"
+version = "0.3.0"
 description = "Bandwidth MCP Server"
 authors = [
     {name = "Bandwidth", email = "dx@bandwidth.com"}

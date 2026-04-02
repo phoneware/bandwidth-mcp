@@ -85,6 +85,14 @@ venv.bak/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# OS / editor
+.DS_Store
+.obsidian/
+.mcp.json
+
+# Serena
+.serena/
+
 # Visual Studio Code
 #  Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
 #  that can be found at https://github.com/github/gitignore/blob/main/Global/VisualStudioCode.gitignore

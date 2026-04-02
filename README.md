@@ -240,6 +240,34 @@ then you can start the server by running the following command from the root dir
 uvx --from ./ start
 ```
 
+## Hosted Mode
+
+Run the server over HTTP to enable remote access and webhook callbacks:
+
+```bash
+BW_MCP_TRANSPORT=streamable-http \
+BW_MCP_PORT=8080 \
+BW_MCP_BASE_URL=https://your-server.example.com \
+BW_USERNAME=your_username \
+BW_PASSWORD=your_password \
+BW_ACCOUNT_ID=your_account_id \
+python src/app.py
+```
+
+### Tool Profiles
+
+Reduce context window pressure with named presets:
+
+```bash
+BW_MCP_PROFILE=messaging    # SMS/MMS tools only
+BW_MCP_PROFILE=voice        # Voice + BXML tools
+BW_MCP_PROFILE=onboarding   # Account creation
+BW_MCP_PROFILE=lookup       # Number intelligence
+BW_MCP_PROFILE=messaging,voice  # Combine profiles
+```
+
+Profiles set via `BW_MCP_PROFILE` env var or `--profile` CLI flag. Use `BW_MCP_TOOLS` to override with specific tool names.
+
 ## Tools List
 
 ### **Express Registration**

@@ -6,12 +6,13 @@ from argparse import ArgumentParser, Namespace
 from profiles import resolve_profile
 
 
-def load_config() -> Dict[str, str]:
+def load_config() -> Dict[str, Any]:
     """Load Bandwidth configuration from environment variables."""
-    config = {}
+    config: Dict[str, Any] = {}
+
     all_vars = [
-        "BW_USERNAME",
-        "BW_PASSWORD",
+        "BW_CLIENT_ID",
+        "BW_CLIENT_SECRET",
         "BW_ACCOUNT_ID",
         "BW_NUMBER",
         "BW_MESSAGING_APPLICATION_ID",
@@ -23,10 +24,10 @@ def load_config() -> Dict[str, str]:
         if value:
             config[var] = value
 
-    if "BW_USERNAME" not in config or "BW_PASSWORD" not in config:
+    if "BW_CLIENT_ID" not in config or "BW_CLIENT_SECRET" not in config:
         warnings.warn(
-            "BW_USERNAME/BW_PASSWORD not set. Only Express Registration tools will be available. "
-            "Use the setCredentials tool after registration to enable authenticated APIs.",
+            "BW_CLIENT_ID/BW_CLIENT_SECRET not set. Only Express Registration tools will be available. "
+            "Use the setCredentials tool to authenticate and enable all API tools.",
             UserWarning,
         )
 
@@ -47,11 +48,32 @@ def load_config() -> Dict[str, str]:
     return config
 
 
+async def authenticate_config(config: Dict[str, Any]) -> None:
+    """If client credentials are present, do OAuth2 token exchange.
+
+    Mutates config in place — adds BW_ACCESS_TOKEN and BW_ACCOUNT_ID.
+    """
+    if "BW_CLIENT_ID" not in config or "BW_CLIENT_SECRET" not in config:
+        return
+
+    from oauth import get_oauth_token
+
+    try:
+        token_data = await get_oauth_token(
+            config["BW_CLIENT_ID"], config["BW_CLIENT_SECRET"]
+        )
+        config["BW_ACCESS_TOKEN"] = token_data["access_token"]
+        accounts = token_data["accounts"]
+        if accounts and "BW_ACCOUNT_ID" not in config:
+            config["BW_ACCOUNT_ID"] = accounts[0]
+    except Exception as e:
+        warnings.warn(f"OAuth2 token exchange failed at startup: {e}", UserWarning)
+
+
 def _parse_cli_args(args: Optional[List[str]] = None) -> Namespace:
     """Parse command line arguments with proper type hints."""
     parser = ArgumentParser(description="Bandwidth MCP Server")
 
-    # Tools
     parser.add_argument(
         "--tools",
         help="Comma-separated list of tool names to enable. If not specified, all tools are enabled.",
@@ -89,15 +111,11 @@ def _parse_arg_list(arg_string: str) -> List[str]:
 
 def _parse_flags(cli_arg: Optional[str], env_var: str) -> Optional[List[str]]:
     """Get flag values from CLI argument or environment variable."""
-    # Try CLI argument first
     if cli_arg:
         return _parse_arg_list(cli_arg)
-
-    # Fall back to environment variable
     env_value = os.getenv(env_var)
     if env_value:
         return _parse_arg_list(env_value)
-
     return None
 
 

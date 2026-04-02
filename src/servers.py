@@ -7,7 +7,6 @@ from typing import Dict, List, Optional, Callable, Any
 from server_utils import (
     add_resources,
     create_route_map_fn,
-    create_auth_header,
     fetch_openapi_spec,
     print_server_info,
 )
@@ -54,12 +53,11 @@ async def _create_server(
 
     headers = {"User-Agent": "Bandwidth MCP Server"}
     if requires_auth:
-        if "BW_USERNAME" not in config or "BW_PASSWORD" not in config:
+        if "BW_ACCESS_TOKEN" not in config:
             raise ValueError(
-                "BW_USERNAME and BW_PASSWORD required for authenticated APIs"
+                "No access token. Call setCredentials with your client ID and secret first."
             )
-        auth_b64 = create_auth_header(config["BW_USERNAME"], config["BW_PASSWORD"])
-        headers["Authorization"] = f"Basic {auth_b64}"
+        headers["Authorization"] = f"Bearer {config['BW_ACCESS_TOKEN']}"
 
     client = AsyncClient(base_url=base_url, headers=headers)
 

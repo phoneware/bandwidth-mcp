@@ -30,9 +30,9 @@ def test_build_instructions_includes_no_credentials_warning():
 
 
 def test_build_instructions_no_warning_when_credentials_present():
-    """No credential warning when username is set."""
+    """No credential warning when access token is set."""
     result = build_instructions(
-        config={"BW_USERNAME": "user", "BW_PASSWORD": "pass"},
+        config={"BW_ACCESS_TOKEN": "bearer-token-here"},
         loaded_tools=["createMessage"],
     )
     assert "no credentials" not in result.lower()

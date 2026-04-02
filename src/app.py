@@ -8,6 +8,7 @@ from fastmcp import FastMCP
 from servers import create_bandwidth_mcp, api_server_info, _create_server
 from config import (
     load_config,
+    authenticate_config,
     get_enabled_tools,
     get_excluded_tools,
     get_transport_config,
@@ -60,6 +61,7 @@ async def setup(mcp: FastMCP = mcp):
     enabled_tools = get_enabled_tools()
     excluded_tools = get_excluded_tools()
     _config = load_config()
+    await authenticate_config(_config)
 
     print("Setting up Bandwidth MCP server...")
     await create_bandwidth_mcp(mcp, enabled_tools, excluded_tools, _config)

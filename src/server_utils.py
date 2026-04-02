@@ -158,21 +158,27 @@ async def fetch_openapi_spec(url: str) -> Dict[str, Any]:
         raise RuntimeError(f"Failed to fetch OpenAPI spec from {url}: {e}") from e
 
 
-def create_auth_header(username: str, password: str) -> str:
-    """Create a basic authentication header."""
-    auth_bytes = f"{username}:{password}".encode("utf-8")
-    return base64.b64encode(auth_bytes).decode("utf-8")
+_SENSITIVE_KEYS = {
+    "BW_CLIENT_SECRET",
+    "BW_ACCESS_TOKEN",
+    "_authenticated_servers_loaded",
+}
+
+
+def _safe_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Return config with sensitive values redacted."""
+    return {k: ("***" if k in _SENSITIVE_KEYS else v) for k, v in config.items()}
 
 
 def add_resources(mcp: FastMCP, config: Dict[str, Any]) -> FastMCP:
     """Add configuration and other resources to the MCP server."""
     config_resource = FunctionResource(
         name="Bandwidth API Configuration",
-        description="Object containing API credentials, application IDs, and account ID.",
-        tags={"bandwidth", "config", "credentials"},
+        description="Shows which credentials, application IDs, and account ID are configured. Sensitive values are redacted.",
+        tags={"bandwidth", "config"},
         uri="resource://config",
         mime_type="application/json",
-        fn=lambda: config,
+        fn=lambda: _safe_config(config),
     )
 
     mcp.add_resource(config_resource)

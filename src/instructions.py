@@ -57,25 +57,36 @@ Requires: BW_ACCOUNT_ID, BW_NUMBER, application ID for chosen channel
 VOICE_SECTION = """
 ## Making a Voice Call (step by step)
 
-To call someone, follow these steps exactly:
+Read resource://config first. You need these values:
+- `BW_ACCOUNT_ID` — your account ID (auto-discovered from credentials)
+- `BW_VOICE_APPLICATION_ID` — the voice application ID (set by user in MCP config)
+- `BW_NUMBER` — your Bandwidth phone number to call from (set by user in MCP config)
+- `BW_MCP_BASE_URL` — this server's public URL (auto-set by tunnel or user config)
 
-1. **Generate the BXML first**: Call `generateBXML` with the verbs for what to say when the call is answered.
-   Example: `generateBXML(verbs=[{"type": "SpeakSentence", "text": "Hello! How is your day going?", "voice": "julie"}])`
-2. **Create the call**: Call `createCall` with `from` (your Bandwidth number, E.164), `to` (destination, E.164), `applicationId`, and `answerUrl` (use the server's base URL + `/callbacks/voice/answer` — check resource://config for BW_MCP_BASE_URL).
-3. **Queue the BXML immediately**: Call `respondToCallback(call_id, bxml)` with the call ID from createCall and the BXML from step 1. This MUST happen before the callee answers — the BXML will be delivered when they pick up.
-4. **For conversations**: After the initial greeting, poll `getCallbackEvents(event_type="voice.gather")` for caller speech. Generate new BXML and call `respondToCallback` for each turn.
+Then follow these steps exactly:
 
-### Key voice tools
-- **createCall**: Initiate an outbound call.
-- **generateBXML**: Produce valid BXML from verb descriptions (SpeakSentence, Gather, Transfer, Record, Pause, Hangup, Redirect, etc.).
-- **respondToCallback**: Queue BXML for an active call. First-write-wins for multi-session safety.
-- **getCallbackEvents**: Read voice events (gather results with transcribed speech, call status, etc.).
-- **configureCallbacks**: Wire a Bandwidth application's webhook URLs to this server.
+1. **Generate the BXML**: Call `generateBXML` with the verbs for what to say.
+   - For a one-shot message (say something and hang up), use `auto_gather=False`:
+     `generateBXML(verbs=[{"type": "SpeakSentence", "text": "Hello!", "voice": "julie"}, {"type": "Hangup"}], auto_gather=False)`
+   - For a conversation (say something and listen for a response), use the default `auto_gather=True`:
+     `generateBXML(verbs=[{"type": "SpeakSentence", "text": "How can I help?", "voice": "julie"}])`
+
+2. **Create the call**: Call `createCall` with:
+   - `accountId`: from BW_ACCOUNT_ID in config
+   - `from`: from BW_NUMBER in config (E.164 format like +19195551234)
+   - `to`: the destination number (E.164)
+   - `applicationId`: from BW_VOICE_APPLICATION_ID in config
+   - `answerUrl`: BW_MCP_BASE_URL + `/callbacks/voice/answer`
+
+3. **Queue the BXML immediately**: Call `respondToCallback(call_id, bxml)` with the call ID from createCall's response and the BXML from step 1. Do this right away — the BXML is delivered when the callee picks up.
+
+4. **For conversations**: After the greeting, poll `getCallbackEvents(event_type="voice.gather")` for the caller's speech. Generate new BXML with `generateBXML` and deliver it with `respondToCallback(call_id, bxml)` for each turn.
 
 ### BXML tips
-- auto_gather=True (default) wraps SpeakSentence in Gather for barge-in.
-- Use input_type "speech dtmf" so callers can speak or press keys.
-- Use voice="julie" or other Bandwidth TTS voices."""
+- `auto_gather=True` (default) wraps SpeakSentence in Gather for barge-in (caller can interrupt).
+- `auto_gather=False` for fire-and-forget messages (say something, then Hangup).
+- Use `voice="julie"` for natural-sounding TTS.
+- For structured input, add `input_type: "speech dtmf"` so callers can speak or press keys."""
 
 CALLBACK_SECTION = """
 ## Inbound Events & Callbacks

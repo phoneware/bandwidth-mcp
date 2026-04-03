@@ -46,8 +46,20 @@ async def lifespan(mcp_instance: FastMCP):
 
     register_credentials_tools(mcp_instance, _config)
     register_callback_tools(mcp_instance, _event_store, _config)
-    register_voice_tools(mcp_instance, _event_store)
+    register_voice_tools(mcp_instance, _event_store, _config)
     register_discovery_tools(mcp_instance, _config)
+
+    # Auto-configure voice app callbacks to current tunnel/base URL
+    base_url = _config.get("BW_MCP_BASE_URL")
+    voice_app = _config.get("BW_VOICE_APPLICATION_ID")
+    if base_url and voice_app and _config.get("BW_ACCESS_TOKEN"):
+        from tools.callbacks import configure_callbacks_flow
+
+        try:
+            result = await configure_callbacks_flow(_config, voice_app, base_url, ["voice"])
+            print(f"Auto-configured voice callbacks → {base_url}")
+        except Exception as e:
+            print(f"Warning: Failed to auto-configure callbacks: {e}")
 
     all_tools = await mcp_instance.get_tools()
     mcp_instance.instructions = build_instructions(_config, list(all_tools.keys()))

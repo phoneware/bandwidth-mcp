@@ -1,5 +1,5 @@
 import pytest
-from src.profiles import resolve_profile
+from src.profiles import resolve_profile, DEFAULT_TOOLS
 
 
 def test_resolve_single_profile():
@@ -45,3 +45,17 @@ def test_onboarding_profile():
     tools = resolve_profile("onboarding")
     assert "createRegistration" in tools
     assert "setCredentials" in tools
+
+
+def test_always_tools_included():
+    """setCredentials and clearCredentials are always included."""
+    tools = resolve_profile("lookup")
+    assert "setCredentials" in tools
+    assert "clearCredentials" in tools
+
+
+def test_default_tools_include_core():
+    """Default tools include voice and messaging."""
+    assert "createCall" in DEFAULT_TOOLS
+    assert "createMessage" in DEFAULT_TOOLS
+    assert "generateBXML" in DEFAULT_TOOLS

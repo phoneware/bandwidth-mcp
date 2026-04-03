@@ -57,7 +57,7 @@ async def configure_callbacks_flow(
     base_url: str,
     types: Optional[list[str]] = None,
 ) -> dict:
-    """Update a Bandwidth application's callback URLs to point at this server."""
+    """Update a Bandwidth application's callback URLs via the Dashboard XML API."""
     if types is None:
         types = ["messaging", "voice"]
 
@@ -66,24 +66,62 @@ async def configure_callbacks_flow(
     if not token or not account_id:
         return {"error": "Not authenticated. Call setCredentials first."}
 
-    # Build the callback URL updates
-    update: dict = {}
-    if "messaging" in types:
-        update["callbackUrl"] = f"{base_url}/callbacks/messaging/inbound"
-        update["statusCallbackUrl"] = f"{base_url}/callbacks/messaging/status"
+    # Build callback URLs
+    callbacks: dict = {}
     if "voice" in types:
-        update["callInitiatedCallbackUrl"] = f"{base_url}/callbacks/voice/answer"
-        update["callStatusCallbackUrl"] = f"{base_url}/callbacks/voice/disconnect"
+        callbacks["callInitiatedCallbackUrl"] = f"{base_url}/callbacks/voice/answer"
+        callbacks["callStatusCallbackUrl"] = f"{base_url}/callbacks/voice/disconnect"
+    if "messaging" in types:
+        callbacks["callbackUrl"] = f"{base_url}/callbacks/messaging/inbound"
+        callbacks["statusCallbackUrl"] = f"{base_url}/callbacks/messaging/status"
 
-    api_url = f"https://api.bandwidth.com/api/v2/accounts/{account_id}/applications/{application_id}"
+    # First GET the current app to preserve its name and service type
+    api_url = f"https://dashboard.bandwidth.com/api/accounts/{account_id}/applications/{application_id}"
 
-    async with httpx.AsyncClient() as client:
-        response = await client.patch(
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        get_resp = await client.get(
             api_url,
-            json=update,
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/xml"},
+        )
+
+    # Extract current name and service type from the XML
+    from xml.etree.ElementTree import fromstring
+
+    app_xml = fromstring(get_resp.text)
+    app_el = app_xml.find(".//Application") or app_xml
+    app_name = ""
+    service_type = ""
+    for child in app_el:
+        if child.tag == "AppName":
+            app_name = child.text or ""
+        if child.tag == "ServiceType":
+            service_type = child.text or ""
+
+    # Build the full XML with required fields + updated callbacks
+    xml_parts = [
+        f"<ServiceType>{service_type}</ServiceType>",
+        f"<AppName>{app_name}</AppName>",
+    ]
+    # XML tags match the Bandwidth Dashboard API naming (PascalCase)
+    tag_map = {
+        "callInitiatedCallbackUrl": "CallInitiatedCallbackUrl",
+        "callStatusCallbackUrl": "CallStatusCallbackUrl",
+        "callbackUrl": "CallbackUrl",
+        "statusCallbackUrl": "StatusCallbackUrl",
+    }
+    for k, v in callbacks.items():
+        tag = tag_map.get(k, k)
+        xml_parts.append(f"<{tag}>{v}</{tag}>")
+
+    xml_body = f"<Application>{''.join(xml_parts)}</Application>"
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        response = await client.put(
+            api_url,
+            content=xml_body,
             headers={
                 "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
+                "Content-Type": "application/xml",
             },
         )
 
@@ -98,7 +136,7 @@ async def configure_callbacks_flow(
         "application_id": application_id,
         "base_url": base_url,
         "types": types,
-        "callbacks": update,
+        "callbacks": callbacks,
     }
 
 

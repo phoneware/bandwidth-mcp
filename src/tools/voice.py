@@ -34,6 +34,8 @@ def _build_verb(verb: dict[str, Any], parent: Element) -> None:
             "terminating_digits",
             "first_digit_timeout",
             "repeat_count",
+            "gather_url",
+            "gather_method",
         ]:
             if attr in verb:
                 el.set(_snake_to_camel(attr), str(verb[attr]))
@@ -100,6 +102,7 @@ def _build_verb(verb: dict[str, Any], parent: Element) -> None:
 async def generate_bxml_flow(
     verbs: list[dict[str, Any]],
     auto_gather: bool = False,
+    gather_url: str = "",
 ) -> str:
     root = Element("Response")
     for verb in verbs:
@@ -111,6 +114,8 @@ async def generate_bxml_flow(
                 "input_type": "speech dtmf",
                 "verbs": [verb],
             }
+            if gather_url:
+                gather_verb["gather_url"] = gather_url
             _build_verb(gather_verb, root)
         else:
             _build_verb(verb, root)
@@ -134,7 +139,7 @@ async def respond_to_callback_flow(
     return {"status": "queued", "call_id": call_id}
 
 
-def register_voice_tools(mcp, event_store: EventStore) -> None:
+def register_voice_tools(mcp, event_store: EventStore, config: dict = None) -> None:
     @mcp.tool(name="generateBXML")
     async def generate_bxml(
         verbs: list[dict[str, Any]],
@@ -154,7 +159,9 @@ def register_voice_tools(mcp, event_store: EventStore) -> None:
             verbs: List of verb descriptions.
             auto_gather: Wrap SpeakSentence in Gather for barge-in. Default True.
         """
-        return await generate_bxml_flow(verbs, auto_gather)
+        base_url = (config or {}).get("BW_MCP_BASE_URL", "")
+        gather_url = f"{base_url}/callbacks/voice/gather" if base_url else ""
+        return await generate_bxml_flow(verbs, auto_gather, gather_url)
 
     @mcp.tool(name="respondToCallback")
     async def respond_to_callback(call_id: str, bxml: str) -> dict:

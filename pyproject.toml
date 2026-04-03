@@ -21,7 +21,7 @@ start = "app:main"
 [tool.setuptools]
 py-modules = [
     "app", "config", "servers", "server_utils", "resources",
-    "instructions", "profiles", "oauth", "event_store", "callbacks",
+    "instructions", "profiles", "oauth", "event_store", "callbacks", "tunnel",
 ]
 packages = ["specs", "tools"]
 

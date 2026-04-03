@@ -122,9 +122,12 @@ async def respond_to_callback_flow(
     call_id: str,
     bxml: str,
 ) -> dict:
+    """Queue BXML for a call. Creates the call state if it doesn't exist yet
+    (allows pre-queuing BXML before the answer callback arrives)."""
     call = event_store.get_call(call_id)
     if not call:
-        return {"error": "call_not_found", "call_id": call_id}
+        # Pre-create call state so BXML is ready when the callback arrives
+        call = event_store.create_call(call_id, "", "", "")
     if not call.try_set_bxml(bxml):
         return {"error": "already_handled", "call_id": call_id}
     call.add_turn("agent", "(BXML response queued)")

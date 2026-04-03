@@ -46,7 +46,6 @@ async def lifespan(mcp_instance: FastMCP):
     register_credentials_tools(mcp_instance, _config)
     register_callback_tools(mcp_instance, _event_store, _config)
     register_voice_tools(mcp_instance, _event_store)
-    register_callback_routes(mcp_instance, _event_store)
 
     all_tools = await mcp_instance.get_tools()
     mcp_instance.instructions = build_instructions(_config, list(all_tools.keys()))
@@ -57,6 +56,10 @@ async def lifespan(mcp_instance: FastMCP):
 
 
 mcp = FastMCP(name="Bandwidth MCP", lifespan=lifespan)
+
+# Register callback HTTP routes at module level — must happen before mcp.run()
+# so Starlette includes them in the app's route table.
+register_callback_routes(mcp, _event_store)
 
 
 # For tests that call setup() directly

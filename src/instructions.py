@@ -57,30 +57,19 @@ Requires: BW_ACCOUNT_ID, BW_NUMBER, application ID for chosen channel
 VOICE_SECTION = """
 ## Making a Voice Call (step by step)
 
-Read resource://config first. You need these values:
-- `BW_ACCOUNT_ID` — your account ID (auto-discovered from credentials)
-- `BW_VOICE_APPLICATION_ID` — the voice application ID (set by user in MCP config)
-- `BW_NUMBER` — your Bandwidth phone number to call from (set by user in MCP config)
-- `BW_MCP_BASE_URL` — this server's public URL (auto-set by tunnel or user config)
+Follow these steps exactly:
 
-Then follow these steps exactly:
-
-1. **Generate the BXML**: Call `generateBXML` with the verbs for what to say.
-   - For a one-shot message (say something and hang up), use `auto_gather=False`:
-     `generateBXML(verbs=[{"type": "SpeakSentence", "text": "Hello!", "voice": "julie"}, {"type": "Hangup"}], auto_gather=False)`
-   - For a conversation (say something and listen for a response), use the default `auto_gather=True`:
-     `generateBXML(verbs=[{"type": "SpeakSentence", "text": "How can I help?", "voice": "julie"}])`
-
-2. **Create the call**: Call `createCall` with:
-   - `accountId`: from BW_ACCOUNT_ID in config
-   - `from`: from BW_NUMBER in config (E.164 format like +19195551234)
-   - `to`: the destination number (E.164)
-   - `applicationId`: from BW_VOICE_APPLICATION_ID in config
-   - `answerUrl`: BW_MCP_BASE_URL + `/callbacks/voice/answer`
-
-3. **Queue the BXML immediately**: Call `respondToCallback(call_id, bxml)` with the call ID from createCall's response and the BXML from step 1. Do this right away — the BXML is delivered when the callee picks up.
-
-4. **For conversations**: After the greeting, poll `getCallbackEvents(event_type="voice.gather")` for the caller's speech. Generate new BXML with `generateBXML` and deliver it with `respondToCallback(call_id, bxml)` for each turn.
+1. **Read resource://config** to get `BW_ACCOUNT_ID` and `BW_MCP_BASE_URL`.
+2. **Find a phone number**: Call `listPhoneNumbers` and pick one (E.164 format).
+3. **Find a voice application**: Call `listApplications` and look for a `Voice-V2` app.
+   - If none exists, call `createApplication(name="Voice App")` — it auto-configures callback URLs.
+   - If the app's callback URLs don't point at this server, call `configureCallbacks(application_id, BW_MCP_BASE_URL)`.
+4. **Generate BXML**: Call `generateBXML` with what to say.
+   - One-shot: `generateBXML(verbs=[{"type": "SpeakSentence", "text": "Hello!", "voice": "julie"}, {"type": "Hangup"}], auto_gather=False)`
+   - Conversation: `generateBXML(verbs=[{"type": "SpeakSentence", "text": "How can I help?", "voice": "julie"}])` (auto_gather=True is default, enables barge-in)
+5. **Create the call**: `createCall(accountId, from, to, applicationId, answerUrl)` where answerUrl = BW_MCP_BASE_URL + `/callbacks/voice/answer`.
+6. **Queue BXML immediately**: `respondToCallback(call_id, bxml)` — do this right after createCall. The BXML is delivered when the callee picks up.
+7. **For conversations**: Poll `getCallbackEvents(event_type="voice.gather")` for caller speech, generate new BXML, deliver with `respondToCallback`.
 
 ### BXML tips
 - `auto_gather=True` (default) wraps SpeakSentence in Gather for barge-in (caller can interrupt).

@@ -23,6 +23,10 @@ PROFILES: dict[str, list[str]] = {
         "respondToCallback",
         "getCallbackEvents",
         "configureCallbacks",
+        # Discovery — find your number and app
+        "listPhoneNumbers",
+        "listApplications",
+        "createApplication",
     ],
     # bw call recording list/get/delete/download + transcription
     "recordings": [

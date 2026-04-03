@@ -15,6 +15,7 @@ from config import (
 from tools.credentials import register_credentials_tools
 from tools.callbacks import register_callback_tools
 from tools.voice import register_voice_tools
+from tools.discovery import register_discovery_tools
 from instructions import build_instructions
 from event_store import EventStore
 from callbacks import register_callback_routes
@@ -46,6 +47,7 @@ async def lifespan(mcp_instance: FastMCP):
     register_credentials_tools(mcp_instance, _config)
     register_callback_tools(mcp_instance, _event_store, _config)
     register_voice_tools(mcp_instance, _event_store)
+    register_discovery_tools(mcp_instance, _config)
 
     all_tools = await mcp_instance.get_tools()
     mcp_instance.instructions = build_instructions(_config, list(all_tools.keys()))

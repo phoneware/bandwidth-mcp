@@ -59,15 +59,11 @@ VOICE_SECTION = """
 
 To call someone, follow these steps exactly:
 
-1. **Find your from number and voice application**: Call `listCalls` or check resource://config for BW_NUMBER. If you don't have an application ID, call the Numbers API tools to list applications on the account.
-2. **Configure callbacks** (if not already done): Call `configureCallbacks(application_id, base_url)` where base_url is this server's public URL. This points the voice application's webhooks at this server.
-3. **Generate the greeting BXML**: Call `generateBXML` with the verbs for what to say. Example:
-   ```
-   generateBXML(verbs=[{"type": "SpeakSentence", "text": "Hello! How is your day going?", "voice": "julie"}])
-   ```
-   auto_gather defaults to True, which wraps SpeakSentence in Gather so the caller can respond.
-4. **Create the call**: Call `createCall` with `from` (your Bandwidth number, E.164), `to` (destination, E.164), `applicationId`, and `answerUrl` (this server's callback URL, e.g. `{base_url}/callbacks/voice/answer`).
-5. **Handle the conversation**: Poll `getCallbackEvents(event_type="voice.gather")` for caller responses. For each response, generate new BXML with `generateBXML` and deliver it with `respondToCallback(call_id, bxml)`.
+1. **Generate the BXML first**: Call `generateBXML` with the verbs for what to say when the call is answered.
+   Example: `generateBXML(verbs=[{"type": "SpeakSentence", "text": "Hello! How is your day going?", "voice": "julie"}])`
+2. **Create the call**: Call `createCall` with `from` (your Bandwidth number, E.164), `to` (destination, E.164), `applicationId`, and `answerUrl` (use the server's base URL + `/callbacks/voice/answer` — check resource://config for BW_MCP_BASE_URL).
+3. **Queue the BXML immediately**: Call `respondToCallback(call_id, bxml)` with the call ID from createCall and the BXML from step 1. This MUST happen before the callee answers — the BXML will be delivered when they pick up.
+4. **For conversations**: After the initial greeting, poll `getCallbackEvents(event_type="voice.gather")` for caller speech. Generate new BXML and call `respondToCallback` for each turn.
 
 ### Key voice tools
 - **createCall**: Initiate an outbound call.

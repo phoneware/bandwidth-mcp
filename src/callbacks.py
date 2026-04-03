@@ -45,6 +45,18 @@ def register_callback_routes(mcp, event_store: EventStore) -> None:
         payload = await request.json()
         call_id = payload.get("callId", "unknown")
         event_store.push("voice.answer", call_id, payload)
+
+        # Check if BXML was pre-queued (agent called respondToCallback before the call was answered)
+        existing_call = event_store.get_call(call_id)
+        if existing_call and existing_call.pending_bxml:
+            # Update with real call info
+            existing_call.from_number = payload.get("from", "")
+            existing_call.to_number = payload.get("to", "")
+            existing_call.application_id = payload.get("applicationId", "")
+            bxml = existing_call.consume_pending_bxml()
+            return _bxml_response(bxml)
+
+        # No pre-queued BXML — create call state and redirect to wait for agent
         event_store.create_call(
             call_id=call_id,
             from_number=payload.get("from", ""),

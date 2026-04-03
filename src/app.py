@@ -18,6 +18,7 @@ from tools.voice import register_voice_tools
 from instructions import build_instructions
 from event_store import EventStore
 from callbacks import register_callback_routes
+from tunnel import start_tunnel, stop_tunnel
 
 _config = {}
 _event_store = EventStore()
@@ -31,6 +32,14 @@ async def lifespan(mcp_instance: FastMCP):
     _config.update(load_config())
     await authenticate_config(_config)
 
+    # Auto-tunnel for dev: if no public URL is set and we're in HTTP mode,
+    # start a cloudflared tunnel so callbacks work without manual setup.
+    transport_config = get_transport_config()
+    if not _config.get("BW_MCP_BASE_URL") and transport_config["transport"] != "stdio":
+        tunnel_url = start_tunnel(transport_config["port"])
+        if tunnel_url:
+            _config["BW_MCP_BASE_URL"] = tunnel_url
+
     print("Setting up Bandwidth MCP server...")
     await create_bandwidth_mcp(mcp_instance, enabled_tools, excluded_tools, _config)
 
@@ -43,6 +52,8 @@ async def lifespan(mcp_instance: FastMCP):
     mcp_instance.instructions = build_instructions(_config, list(all_tools.keys()))
 
     yield
+
+    stop_tunnel()
 
 
 mcp = FastMCP(name="Bandwidth MCP", lifespan=lifespan)

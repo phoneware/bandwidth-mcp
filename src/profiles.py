@@ -1,75 +1,85 @@
-"""Tool profile presets — task-oriented tool sets that keep context small.
+"""Tool profiles — curated tool sets mirroring the CLI's command surface.
 
-Profiles answer "what do I need to do X?" not "give me every tool in this API."
-The default (no profile) loads a curated set covering the common use cases.
+Instead of loading entire OpenAPI specs (430+ tools), we cherrypick the
+operationIds that map to real CLI commands. This keeps context small and
+matches the agent experience to the CLI experience.
 """
 
 from typing import Optional
 
-# Task-oriented profiles
+# Cherrypicked operationIds mapped from the CLI command structure.
+# Format: CLI command → operationId(s) from the OpenAPI specs.
+
 PROFILES: dict[str, list[str]] = {
-    "messaging": [
-        "createMessage",
-        "listMessages",
-        "getInboundMessages",
-        "configureCallbacks",
-        "setCredentials",
-    ],
+    # bw call create/list/get/update/hangup
     "voice": [
         "createCall",
-        "updateCall",
-        "updateCallBxml",
         "listCalls",
         "getCallState",
+        "updateCall",
+        "updateCallBxml",
+        # Custom tools
         "generateBXML",
         "respondToCallback",
         "getCallbackEvents",
         "configureCallbacks",
-        "setCredentials",
-        # Numbers discovery — need to find your from number and application
-        "GetPhoneNumbers",
-        "getPhoneNumbers",
-        "ListApplications",
     ],
+    # bw call recording list/get/delete/download + transcription
+    "recordings": [
+        "listCallRecordings",
+        "getCallRecording",
+        "deleteRecording",
+        "downloadCallRecording",
+        "transcribeCallRecording",
+        "getRecordingTranscription",
+    ],
+    # Numbers API tools are disabled — the API is XML-based and from_openapi
+    # sends JSON. These will be re-enabled when we have a proper adapter.
+    # "applications": [...],
+    # "numbers": [...],
+    # "sites": [...],
+    # "locations": [...],
+    # bw account register/send-code/verify (express registration)
     "onboarding": [
         "createRegistration",
         "sendVerificationCode",
         "verifyRegistrationCode",
-        "setCredentials",
     ],
-    "lookup": [
-        "createSyncLookup",
-        "createAsyncBulkLookup",
-        "getAsyncBulkLookup",
-        "setCredentials",
+    # createMessage/listMessages + media
+    "messaging": [
+        "createMessage",
+        "listMessages",
+        "listMedia",
+        "getMedia",
+        "uploadMedia",
+        "deleteMedia",
+        "getInboundMessages",
+        "configureCallbacks",
     ],
+    # MFA
     "mfa": [
         "generateMessagingCode",
         "generateVoiceCode",
         "verifyCode",
-        "setCredentials",
     ],
-    "numbers": [
-        # Number discovery and management
-        "GetPhoneNumbers",
-        "getPhoneNumbers",
-        "ListApplications",
-        "GetApplication",
-        "SearchAvailableNumbers",
-        "CreateOrder",
-        "GetOrder",
-        "ListOrders",
-        "DisconnectNumbers",
-        "setCredentials",
+    # Phone number lookup
+    "lookup": [
+        "createSyncLookup",
+        "createAsyncBulkLookup",
+        "getAsyncBulkLookup",
     ],
 }
 
-# Default: what most users need without specifying a profile
+# Always included regardless of profile
+_ALWAYS_TOOLS = ["setCredentials", "clearCredentials"]
+
+# Default: voice + messaging + lookup + MFA
 DEFAULT_TOOLS = list(dict.fromkeys(
-    PROFILES["messaging"]
-    + PROFILES["voice"]
+    PROFILES["voice"]
+    + PROFILES["messaging"]
     + PROFILES["lookup"]
     + PROFILES["mfa"]
+    + _ALWAYS_TOOLS
 ))
 
 
@@ -101,4 +111,5 @@ def resolve_profile(profile_str: Optional[str]) -> Optional[list[str]]:
         else:
             tools.extend(PROFILES[name])
 
+    tools.extend(_ALWAYS_TOOLS)
     return list(dict.fromkeys(tools))

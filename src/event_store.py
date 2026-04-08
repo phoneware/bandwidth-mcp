@@ -7,7 +7,7 @@ safety and first-write-wins on voice BXML responses.
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 
 @dataclass

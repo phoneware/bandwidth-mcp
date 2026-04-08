@@ -1,6 +1,6 @@
 """MCP tools for programmable voice: BXML generation and call response."""
 
-from typing import Any, Optional
+from typing import Any
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from event_store import EventStore

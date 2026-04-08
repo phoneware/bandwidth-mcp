@@ -217,11 +217,11 @@ Once these are installed, create a virtual environment using:
 python -m venv .venv
 ```
 
-Then activate and install the required packaged from the `requirements.txt` file.
+Then activate and install the project with its dependencies.
 
 ```sh
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install .
 ```
 
 After all packages are installed in the virtual environment, you can run the server locally using:

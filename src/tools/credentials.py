@@ -7,8 +7,6 @@ clearCredentials: Removes stored credentials and access token so that
 authenticated API tools return 401 until the user logs in again.
 """
 
-from typing import Optional
-
 from oauth import get_oauth_token
 
 _AUTH_KEYS = [

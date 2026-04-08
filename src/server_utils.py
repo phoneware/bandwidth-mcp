@@ -3,7 +3,6 @@ import hashlib
 import warnings
 import yaml
 import httpx
-import base64
 
 from pathlib import Path
 from fastmcp import FastMCP

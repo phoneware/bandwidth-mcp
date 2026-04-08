@@ -5,7 +5,6 @@ These are hand-written tools that hit the XML endpoints directly and
 return clean JSON for the agent.
 """
 
-from typing import Optional
 from xml.etree.ElementTree import fromstring
 
 import httpx

@@ -154,6 +154,6 @@ def get_transport_config() -> Dict[str, Any]:
     args = _parse_cli_args()
     return {
         "transport": args.transport or os.getenv("BW_MCP_TRANSPORT", "stdio"),
-        "host": os.getenv("BW_MCP_HOST", "0.0.0.0"),
+        "host": os.getenv("BW_MCP_HOST", "127.0.0.1"),
         "port": args.port or int(os.getenv("BW_MCP_PORT", "8080")),
     }

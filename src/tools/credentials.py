@@ -7,6 +7,8 @@ clearCredentials: Removes stored credentials and access token so that
 authenticated API tools return 401 until the user logs in again.
 """
 
+import os
+
 from oauth import get_oauth_token
 
 _AUTH_KEYS = [
@@ -66,30 +68,39 @@ def register_credentials_tools(
     mcp,
     config: dict,
 ):
-    """Register the setCredentials and clearCredentials tools on the MCP server."""
+    """Register the setCredentials and clearCredentials tools on the MCP server.
 
-    @mcp.tool(name="setCredentials")
-    async def set_credentials(
-        client_id: str,
-        client_secret: str,
-    ) -> dict:
-        """Authenticate with Bandwidth using OAuth2 client credentials.
+    setCredentials accepts secret material as tool arguments and is only
+    registered for stdio transport. Under remote transports it is omitted
+    entirely; clearCredentials remains available since it only mutates
+    in-memory state.
+    """
 
-        Exchanges your client ID and secret for a Bearer token and discovers
-        your account ID automatically. Primarily for express registration flows.
+    transport = os.environ.get("BW_MCP_TRANSPORT", "stdio")
 
-        For normal usage, add BW_CLIENT_ID and BW_CLIENT_SECRET to your MCP
-        server configuration so authentication happens at startup.
+    if transport == "stdio":
+        @mcp.tool(name="setCredentials")
+        async def set_credentials(
+            client_id: str,
+            client_secret: str,
+        ) -> dict:
+            """Authenticate with Bandwidth using OAuth2 client credentials.
 
-        Args:
-            client_id: Bandwidth API client ID (e.g. CLI-xxxxxxxx-xxxx-...)
-            client_secret: Bandwidth API client secret
-        """
-        return await set_credentials_flow(
-            config=config,
-            client_id=client_id,
-            client_secret=client_secret,
-        )
+            Exchanges your client ID and secret for a Bearer token and discovers
+            your account ID automatically. Primarily for express registration flows.
+
+            For normal usage, add BW_CLIENT_ID and BW_CLIENT_SECRET to your MCP
+            server configuration so authentication happens at startup.
+
+            Args:
+                client_id: Bandwidth API client ID (e.g. CLI-xxxxxxxx-xxxx-...)
+                client_secret: Bandwidth API client secret
+            """
+            return await set_credentials_flow(
+                config=config,
+                client_id=client_id,
+                client_secret=client_secret,
+            )
 
     @mcp.tool(name="clearCredentials")
     async def clear_credentials() -> dict:

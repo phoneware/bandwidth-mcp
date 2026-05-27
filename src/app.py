@@ -1,4 +1,5 @@
 import os
+import sys
 from contextlib import asynccontextmanager
 
 os.environ["FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER"] = "true"
@@ -33,10 +34,22 @@ async def lifespan(mcp_instance: FastMCP):
     _config.update(load_config())
     await authenticate_config(_config)
 
-    # Auto-tunnel for dev: if no public URL is set and we're in HTTP mode,
-    # start a cloudflared tunnel so callbacks work without manual setup.
+    # Auto-tunnel: opt-in only. Requires BW_MCP_DEV_TUNNEL truthy in addition
+    # to a non-stdio transport and no explicit BW_MCP_BASE_URL.
     transport_config = get_transport_config()
-    if not _config.get("BW_MCP_BASE_URL") and transport_config["transport"] != "stdio":
+    dev_tunnel_flag = os.environ.get("BW_MCP_DEV_TUNNEL", "").strip()
+    dev_tunnel_enabled = bool(dev_tunnel_flag) and dev_tunnel_flag != "0"
+    if (
+        dev_tunnel_enabled
+        and not _config.get("BW_MCP_BASE_URL")
+        and transport_config["transport"] != "stdio"
+    ):
+        print(
+            "WARNING: BW_MCP_DEV_TUNNEL is set — starting an ephemeral public "
+            "tunnel via cloudflared. Do not use this for production traffic.",
+            file=sys.stderr,
+            flush=True,
+        )
         tunnel_url = start_tunnel(transport_config["port"])
         if tunnel_url:
             _config["BW_MCP_BASE_URL"] = tunnel_url

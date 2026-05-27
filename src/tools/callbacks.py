@@ -5,6 +5,7 @@ from typing import Optional
 import httpx
 
 from event_store import EventStore
+from urls import dashboard_api_base
 
 
 async def get_inbound_messages_flow(
@@ -76,7 +77,7 @@ async def configure_callbacks_flow(
         callbacks["statusCallbackUrl"] = f"{base_url}/callbacks/messaging/status"
 
     # First GET the current app to preserve its name and service type
-    api_url = f"https://dashboard.bandwidth.com/api/accounts/{account_id}/applications/{application_id}"
+    api_url = f"{dashboard_api_base()}/accounts/{account_id}/applications/{application_id}"
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         get_resp = await client.get(

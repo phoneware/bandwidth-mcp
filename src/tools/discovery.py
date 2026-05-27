@@ -9,8 +9,7 @@ from xml.etree.ElementTree import fromstring
 
 import httpx
 
-
-DASHBOARD_BASE = "https://dashboard.bandwidth.com/api"
+from urls import dashboard_api_base
 
 
 async def _dashboard_get(config: dict, path: str) -> str:
@@ -22,7 +21,7 @@ async def _dashboard_get(config: dict, path: str) -> str:
     if not account_id:
         raise RuntimeError("No account ID. Authentication may have failed.")
 
-    url = f"{DASHBOARD_BASE}/accounts/{account_id}/{path}"
+    url = f"{dashboard_api_base()}/accounts/{account_id}/{path}"
     async with httpx.AsyncClient(follow_redirects=True) as client:
         resp = await client.get(
             url,
@@ -106,7 +105,7 @@ async def create_application_flow(
         <CallStatusCallbackUrl>{status_url}</CallStatusCallbackUrl>
     </Application>"""
 
-    url = f"{DASHBOARD_BASE}/accounts/{account_id}/applications"
+    url = f"{dashboard_api_base()}/accounts/{account_id}/applications"
     async with httpx.AsyncClient(follow_redirects=True) as client:
         resp = await client.post(
             url,

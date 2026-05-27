@@ -10,7 +10,7 @@ from typing import Any
 
 import httpx
 
-TOKEN_URL = "https://api.bandwidth.com/api/v1/oauth2/token"
+from urls import oauth_token_url
 
 
 def _decode_jwt_payload(token: str) -> dict[str, Any]:
@@ -27,7 +27,7 @@ def _decode_jwt_payload(token: str) -> dict[str, Any]:
 async def get_oauth_token(
     client_id: str,
     client_secret: str,
-    token_url: str = TOKEN_URL,
+    token_url: str | None = None,
 ) -> dict[str, Any]:
     """Exchange client credentials for a Bearer token.
 
@@ -45,9 +45,11 @@ async def get_oauth_token(
     auth_bytes = f"{client_id}:{client_secret}".encode("utf-8")
     auth_b64 = base64.b64encode(auth_bytes).decode("utf-8")
 
+    resolved_token_url = token_url or oauth_token_url()
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            token_url,
+            resolved_token_url,
             data={"grant_type": "client_credentials"},
             headers={
                 "Authorization": f"Basic {auth_b64}",

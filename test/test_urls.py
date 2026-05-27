@@ -9,6 +9,8 @@ def _clear_env(monkeypatch):
         "BW_API_URL",
         "BW_VOICE_URL",
         "BW_MESSAGING_URL",
+        "BW_MFA_URL",
+        "BW_INSIGHTS_URL",
     ]:
         monkeypatch.delenv(k, raising=False)
 
@@ -122,3 +124,64 @@ def test_no_inlined_hosts_in_src(monkeypatch):
             if needle in text:
                 offenders.append(f"{py}: {needle}")
     assert not offenders, "Inlined host strings found:\n" + "\n".join(offenders)
+
+
+def test_mfa_and_insights_bases(monkeypatch):
+    _clear_env(monkeypatch)
+    assert urls.mfa_base() == "https://mfa.bandwidth.com"
+    assert urls.insights_base() == "https://insights.bandwidth.com"
+
+
+def test_mfa_url_override(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("BW_MFA_URL", "https://stage.mfa.invalid")
+    assert urls.mfa_base() == "https://stage.mfa.invalid"
+
+
+def test_swap_host_unchanged_for_unknown_host(monkeypatch):
+    _clear_env(monkeypatch)
+    assert urls.swap_host("https://example.com/foo") == "https://example.com/foo"
+
+
+def test_swap_host_applies_env_override(monkeypatch):
+    """swap_host rewrites the host portion of a spec server URL while preserving the path."""
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("BW_VOICE_URL", "https://stage.voice.invalid")
+    assert (
+        urls.swap_host("https://voice.bandwidth.com/api/v2")
+        == "https://stage.voice.invalid/api/v2"
+    )
+
+
+def test_swap_host_uses_environment_mapping(monkeypatch):
+    """BW_ENVIRONMENT=test flips known hosts to their test equivalents."""
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("BW_ENVIRONMENT", "test")
+    assert (
+        urls.swap_host("https://api.bandwidth.com/v2")
+        == "https://test.api.bandwidth.com/v2"
+    )
+    assert (
+        urls.swap_host("https://voice.bandwidth.com/api/v2")
+        == "https://test.voice.bandwidth.com/api/v2"
+    )
+
+
+def test_swap_host_per_host_override_wins(monkeypatch):
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("BW_ENVIRONMENT", "test")
+    monkeypatch.setenv("BW_API_URL", "https://override.invalid")
+    assert (
+        urls.swap_host("https://api.bandwidth.com/v2/foo")
+        == "https://override.invalid/v2/foo"
+    )
+
+
+def test_swap_host_messaging_stays_prod_in_test_env(monkeypatch):
+    """BW_ENVIRONMENT=test keeps messaging on prod (matches CLI behavior)."""
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("BW_ENVIRONMENT", "test")
+    assert (
+        urls.swap_host("https://messaging.bandwidth.com/api/v2")
+        == "https://messaging.bandwidth.com/api/v2"
+    )

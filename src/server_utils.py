@@ -203,8 +203,46 @@ def _clean_openapi_spec(spec: Dict[str, Any]) -> Dict[str, Any]:
     _fix_malformed_refs(cleaned_spec)
     _fix_response_descriptions(cleaned_spec)
     _fix_misplaced_allof(cleaned_spec)
+    _patch_phone_number_lookup(cleaned_spec)
 
     return cleaned_spec
+
+
+def _patch_phone_number_lookup(spec: Dict[str, Any]) -> None:
+    """The upstream phone-number-lookup-v2 spec ships with empty request body
+    schemas for both createSyncLookup and createAsyncBulkLookup. Without a
+    schema, FastMCP from_openapi can't surface the body field to the agent,
+    so the lookup tools become unusable.
+
+    Inject the real shape (confirmed against the live API on stage). The body
+    field is `phoneNumbers`, not `tns` as some older docs imply.
+    """
+    paths = spec.get("paths", {})
+    targets = (
+        "/accounts/{accountId}/phoneNumberLookup",
+        "/accounts/{accountId}/phoneNumberLookup/bulk",
+    )
+    body_schema = {
+        "type": "object",
+        "required": ["phoneNumbers"],
+        "properties": {
+            "phoneNumbers": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Phone numbers in E.164 format to look up (e.g. \"+19195551234\").",
+            }
+        },
+    }
+    for path in targets:
+        op = paths.get(path, {}).get("post")
+        if not isinstance(op, dict):
+            continue
+        rb = op.setdefault("requestBody", {"required": True, "content": {}})
+        content = rb.setdefault("content", {})
+        media = content.setdefault("application/json", {})
+        # Only inject if the upstream schema is missing or empty.
+        if not media.get("schema"):
+            media["schema"] = body_schema
 
 
 async def fetch_openapi_spec(url: str) -> Dict[str, Any]:

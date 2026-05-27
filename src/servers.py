@@ -12,6 +12,7 @@ from server_utils import (
     fetch_openapi_spec,
     print_server_info,
 )
+from urls import swap_host
 
 _SPECS_DIR = Path(specs.__file__).parent
 
@@ -64,6 +65,10 @@ async def _create_server(
     if "servers" not in spec_object or not spec_object["servers"]:
         raise ValueError(f"OpenAPI spec from {url} has no servers defined")
 
+    # Spec server URLs hardcode prod hosts (api/voice/messaging/mfa/insights
+    # .bandwidth.com). Rewrite so BW_ENVIRONMENT and per-host overrides take
+    # effect for OpenAPI-derived tools too. swap_host preserves the path.
+    spec_object["servers"][0]["url"] = swap_host(spec_object["servers"][0]["url"])
     base_url = spec_object["servers"][0]["url"]
 
     headers = {"User-Agent": "Bandwidth MCP Server"}
@@ -71,7 +76,31 @@ async def _create_server(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    client = AsyncClient(base_url=base_url, headers=headers, follow_redirects=True)
+    async def _ensure_content_type(request):
+        """Workaround for FastMCP from_openapi: when the OpenAPI spec declares
+        a non-JSON request body (e.g. application/xml for updateCallBxml),
+        FastMCP sends the body via httpx `content=` without setting Content-Type.
+        Bandwidth's APIs reject those with 415. Sniff the body and inject the
+        right header before the request goes out.
+        """
+        if not request.content:
+            return
+        if request.headers.get("content-type"):
+            return
+        body_start = request.content[:64].lstrip() if isinstance(request.content, bytes) else request.content[:64].lstrip().encode()
+        if body_start.startswith(b"<"):
+            request.headers["content-type"] = "application/xml"
+        elif body_start.startswith(b"{") or body_start.startswith(b"["):
+            request.headers["content-type"] = "application/json"
+        else:
+            request.headers["content-type"] = "application/octet-stream"
+
+    client = AsyncClient(
+        base_url=base_url,
+        headers=headers,
+        follow_redirects=True,
+        event_hooks={"request": [_ensure_content_type]},
+    )
 
     mcp = FastMCP.from_openapi(
         openapi_spec=spec_object,

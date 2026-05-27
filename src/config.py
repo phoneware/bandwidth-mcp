@@ -130,12 +130,22 @@ def get_enabled_tools() -> Optional[List[str]]:
 
     Priority: --tools > BW_MCP_TOOLS > --profile > BW_MCP_PROFILE > default profile.
     Use BW_MCP_PROFILE=full to load everything.
+
+    Returns None to mean "no filter — load every tool the specs expose."
     """
     args = _parse_cli_args()
     explicit = _parse_flags(args.tools, "BW_MCP_TOOLS")
     if explicit:
         return explicit
-    profile_tools = get_profile_tools()
+    # "full" must be checked on the raw string. resolve_profile() returns None
+    # for both "no profile set" and "profile=full"; without this guard, full
+    # would fall through to DEFAULT_TOOLS instead of loading everything.
+    profile_str = args.profile or os.getenv("BW_MCP_PROFILE")
+    if profile_str:
+        names = [p.strip() for p in profile_str.split(",") if p.strip()]
+        if "full" in names:
+            return None
+    profile_tools = resolve_profile(profile_str)
     if profile_tools is not None:
         return profile_tools
     # No explicit config — use the default curated set

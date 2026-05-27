@@ -55,21 +55,76 @@ async def list_applications_flow(config: dict) -> dict:
     return {"applications": apps, "count": len(apps)}
 
 
-async def list_phone_numbers_flow(config: dict, size: int = 100) -> dict:
-    """List in-service phone numbers on the account."""
-    xml = await _dashboard_get(config, f"inserviceNumbers?size={size}")
-    root = fromstring(xml)
+async def list_phone_numbers_flow(
+    config: dict,
+    size: int = 100,
+    status: str = "Inservice",
+) -> dict:
+    """List phone numbers on the account.
 
-    total = _xml_text(root, "TotalCount", "0")
+    The Dashboard API has two endpoints that return overlapping data, gated by
+    different credential roles:
+      - `/tns?accountId=…&status=…` requires the **Numbers** role
+        (CLI's primary choice — see cli/cmd/number/list.go)
+      - `/accounts/{id}/inserviceNumbers` requires the **inservice** role
+        (older endpoint; status-implicit "Inservice")
+
+    Different creds get one, both, or neither. Try `/tns` first to match the
+    CLI; if it 403s, fall back to `inserviceNumbers` before reporting failure.
+    """
+    account_id = config.get("BW_ACCOUNT_ID")
+    if not account_id:
+        raise RuntimeError("No account ID. Authentication may have failed.")
+    token = config.get("BW_ACCESS_TOKEN")
+    if not token:
+        raise RuntimeError("Not authenticated. Set BW_CLIENT_ID and BW_CLIENT_SECRET.")
+
+    import httpx
+
+    tns_url = (
+        f"{dashboard_api_base()}/tns"
+        f"?accountId={account_id}&status={status}&size={size}&page=1"
+    )
+    inservice_url = (
+        f"{dashboard_api_base()}/accounts/{account_id}/inserviceNumbers?size={size}"
+    )
+
+    async def _fetch(url: str) -> httpx.Response:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            return await client.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/xml",
+                },
+            )
+
+    resp = await _fetch(tns_url)
+    if resp.status_code == 403:
+        # Cred lacks Numbers role — try the inservice path.
+        resp = await _fetch(inservice_url)
+    resp.raise_for_status()
+
+    root = fromstring(resp.text)
+
+    # Both endpoints expose either <FullNumber> (tns) or <TelephoneNumber>
+    # (inserviceNumbers). Try both tag shapes.
     numbers = []
-    for tn_el in root.iter("TelephoneNumber"):
-        number = tn_el.text
-        if number:
-            # Normalize to E.164 if not already
-            if not number.startswith("+"):
-                number = f"+1{number}"
-            numbers.append(number)
+    for fn_el in root.iter("FullNumber"):
+        if fn_el.text:
+            n = fn_el.text
+            if not n.startswith("+"):
+                n = f"+1{n}" if len(n) == 10 else f"+{n}"
+            numbers.append(n)
+    if not numbers:
+        for tn_el in root.iter("TelephoneNumber"):
+            if tn_el.text:
+                n = tn_el.text
+                if not n.startswith("+"):
+                    n = f"+1{n}" if len(n) == 10 else f"+{n}"
+                numbers.append(n)
 
+    total = _xml_text(root, "TotalCount", str(len(numbers)))
     return {"numbers": numbers, "totalCount": int(total), "returned": len(numbers)}
 
 
@@ -144,16 +199,17 @@ def register_discovery_tools(mcp, config: dict) -> None:
         return await list_applications_flow(config)
 
     @mcp.tool(name="listPhoneNumbers")
-    async def list_phone_numbers(size: int = 100) -> dict:
-        """List in-service phone numbers on your Bandwidth account.
+    async def list_phone_numbers(size: int = 100, status: str = "Inservice") -> dict:
+        """List phone numbers on your Bandwidth account.
 
         Returns phone numbers in E.164 format. Use this to find a 'from'
         number for createCall or createMessage.
 
         Args:
             size: Maximum numbers to return (default 100).
+            status: Comma-separated statuses (Inservice, InAccount, Aging).
         """
-        return await list_phone_numbers_flow(config, size)
+        return await list_phone_numbers_flow(config, size, status)
 
     @mcp.tool(name="createApplication")
     async def create_application(

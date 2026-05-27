@@ -43,11 +43,10 @@ PROFILES: dict[str, list[str]] = {
     # "numbers": [...],
     # "sites": [...],
     # "locations": [...],
-    # bw account register/send-code/verify (express registration)
+    # bw account register (Build registration). Only the kickoff is exposed —
+    # SMS and email verification happen in the user's browser, not via API.
     "onboarding": [
         "createRegistration",
-        "sendVerificationCode",
-        "verifyRegistrationCode",
     ],
     # createMessage/listMessages + media
     "messaging": [

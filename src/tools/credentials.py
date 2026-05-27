@@ -29,7 +29,7 @@ async def set_credentials_flow(
     Note: This updates the token in config, but tools created at startup
     already have their httpx client headers set. For full effect, the user
     should add credentials to their MCP config and restart the server.
-    This tool is primarily useful for express registration flows.
+    This tool is primarily useful for Build registration flows.
     """
     token_data = await get_oauth_token(client_id, client_secret)
 
@@ -87,7 +87,7 @@ def register_credentials_tools(
             """Authenticate with Bandwidth using OAuth2 client credentials.
 
             Exchanges your client ID and secret for a Bearer token and discovers
-            your account ID automatically. Primarily for express registration flows.
+            your account ID automatically. Primarily for Build registration flows.
 
             For normal usage, add BW_CLIENT_ID and BW_CLIENT_SECRET to your MCP
             server configuration so authentication happens at startup.

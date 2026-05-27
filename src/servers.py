@@ -40,8 +40,8 @@ api_server_info: Dict[str, Dict[str, Any]] = {
     "toll-free-verification": {
         "url": "https://dev.bandwidth.com/spec/toll-free-verification.yml"
     },
-    "express-registration": {
-        "url": str(_SPECS_DIR / "express.yml"),
+    "build-registration": {
+        "url": str(_SPECS_DIR / "build.yml"),
     },
 }
 

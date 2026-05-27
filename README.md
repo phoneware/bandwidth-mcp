@@ -89,10 +89,12 @@ BW_MCP_EXCLUDE_TOOLS=createLookup,getLookupStatus
 --exclude-tools createLookup,getLookupStatus
 ```
 
-**Account Creation Flow (Express Registration)**
+**Account Creation Flow (Build Registration)**
+
+Bandwidth Build is the free voice-first trial. Use this profile when the user has no credentials yet. The MCP only exposes `createRegistration` to kick things off — SMS verification, password set, and API credential generation all happen in pages Bandwidth links the user to. The agent shouldn't try to consume the SMS code over the API; it belongs to the user's browser flow.
 
 ```sh
-BW_MCP_TOOLS=createRegistration,sendVerificationCode,verifyRegistrationCode
+BW_MCP_TOOLS=createRegistration
 ```
 
 ## Using the Server
@@ -287,9 +289,8 @@ The default tool set is `voice` + `messaging` + `lookup` + `mfa` (plus
 - `clearCredentials` — log out of the session
 
 ### Profile: `onboarding` (no auth required)
-- `createRegistration` — start Express Registration with contact details
-- `sendVerificationCode` — trigger SMS OTP to the registered number
-- `verifyRegistrationCode` — confirm the OTP; returns a client ID / secret
+Kicks off a new Bandwidth Build account. Only one tool is exposed — SMS verification, password set, and API credential generation all happen in the user's browser. The agent hands off after the kickoff.
+- `createRegistration` — submit contact details; Bandwidth then SMSes an OTP and emails a password-set link
 
 ### Profile: `voice`
 - `listApplications` / `createApplication` — find or create a voice app

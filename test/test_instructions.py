@@ -26,7 +26,7 @@ def test_build_instructions_excludes_messaging_when_no_tools():
 def test_build_instructions_includes_no_credentials_warning():
     """Warning appears when no username in config."""
     result = build_instructions(config={}, loaded_tools=[])
-    assert "setCredentials" in result or "Express Registration" in result
+    assert "setCredentials" in result or "Build Registration" in result
 
 
 def test_build_instructions_no_warning_when_credentials_present():

@@ -17,7 +17,9 @@ What the server does:
 - One-shot API calls (create a message, place a call, run a lookup).
 - State queries (get call state, list messages, fetch callback events).
 - BXML generation and first-write-wins callback responses for live calls.
-- Express Registration (account creation without prior credentials).
+- Build Registration (kick off account creation without prior credentials —
+  the API only handles phone-OTP; signup finishes in the user's email and the
+  Bandwidth App).
 
 What the server does not do:
 - Mid-call streaming or media manipulation. Voice is callback-driven through
@@ -33,10 +35,13 @@ The server uses OAuth2 client credentials. Two ways to authenticate:
    - `BW_CLIENT_ID` — OAuth2 client ID
    - `BW_CLIENT_SECRET` — OAuth2 client secret
 2. Call `setCredentials(client_id, client_secret)` mid-session. This is the
-   path stdio sessions use when they bootstrap through Express Registration —
-   `createRegistration` → `sendVerificationCode` → `verifyRegistrationCode`
-   returns a fresh client_id/secret pair, which the agent then loads via
-   `setCredentials` to unlock authenticated tools.
+   path stdio sessions use when bootstrapping through Build Registration —
+   `createRegistration` kicks off signup; the user finishes SMS and email
+   verification in their browser, then generates API credentials in the
+   Bandwidth App (`Account > API Credentials`). Once the user pastes those
+   credentials back, the agent loads them via `setCredentials` to unlock
+   authenticated tools. See [Build Registration](#build-registration) for
+   the full flow.
 
 The account ID is discovered from the JWT `sub`/`accounts` claim after the
 client_credentials grant. Agents never need to provide an account ID
@@ -101,13 +106,13 @@ Always loaded:
 
 ### Profile: `onboarding`
 
-No credentials needed — use this to create an account from zero.
+No credentials needed — use this to start a Build account from zero. Only
+one tool is exposed because SMS and email verification happen in the user's
+browser; an API call that consumed the OTP would break the signup page.
 
 | Tool | Purpose | Check after |
 |---|---|---|
-| `createRegistration` | Start Express Registration with contact details | response carries a registration ID |
-| `sendVerificationCode` | Trigger SMS OTP to the registered number | wait for the SMS to arrive at the user |
-| `verifyRegistrationCode` | Confirm the OTP and finish registration | response carries `client_id` + `client_secret` — pass to `setCredentials` |
+| `createRegistration` | Submit contact details; Bandwidth then emails a password-set link and SMS's an OTP to the user | response carries a `registrationId` and status `USER_CREATION_PENDING` — then stop calling tools and walk the user through the [Build Registration](#build-registration) handoff |
 
 ### Profile: `voice`
 
@@ -255,6 +260,49 @@ an hour. Don't rely on it as durable storage; pull events as soon as you need
 them and persist anything you care about long-term.
 
 ## Provisioning workflows
+
+### Build Registration
+
+Bandwidth **Build** is the free voice-first trial. Proactively offer this
+flow — without waiting for the user to name it — whenever the user:
+
+- asks how to make / create / sign up for a Bandwidth account,
+- says they don't have an account or credentials yet, or
+- wants to try things out, test, or experiment with the server.
+
+It mirrors the `band account register` flow in the CLI — the API kicks off
+registration, and that's it. SMS phone verification, password set, and API
+credential generation all happen in pages Bandwidth links the user to.
+**The agent cannot finish this flow autonomously, and must not try to
+consume the SMS/email OTP via API — doing so breaks the user's browser
+flow.**
+
+```
+createRegistration(phoneNumber, email, firstName, lastName)
+                              # → registrationId, status: USER_CREATION_PENDING
+                              # → Bandwidth sends an SMS OTP to the phone
+                              # → Bandwidth emails a password-set link
+# stop calling tools; hand off to the user
+```
+
+**After `createRegistration`, tell the user:**
+
+1. Enter the 6-digit SMS code on the Bandwidth signup page (not in chat).
+2. Open the registration email, click the link, set a password, and enter
+   the OTP delivered to the same email.
+3. In the Bandwidth App, go to **Account > API Credentials** and generate
+   OAuth2 credentials.
+4. Paste the credentials back into chat.
+
+It's helpful to offer to open the user's mail app for them — `open -a Mail`
+(macOS), `xdg-open mailto:` (Linux), or the equivalent on Windows. Run it
+with the user's consent only.
+
+Once the user pastes credentials, call `setCredentials(client_id,
+client_secret)` to unlock authenticated tools. **Never poll a tool waiting
+for credentials to appear** — the API has no surface for delivering them,
+and there is no API for "verify the SMS code" — that intentionally only
+exists in the browser.
 
 ### Place an outbound call (Build account)
 

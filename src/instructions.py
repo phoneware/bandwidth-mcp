@@ -31,7 +31,7 @@ No API credentials were provided at startup. All tools are available but API cal
 ```
 Tell the user to add these to their MCP config and restart the server.
 
-Alternatively, for new accounts: use Express Registration (createRegistration → sendVerificationCode → verifyRegistrationCode), then call setCredentials with the new credentials."""
+Alternatively, for new accounts: use Build Registration (`createRegistration` kicks it off; the user finishes SMS, password, and credential generation in their browser). See the Build Registration section if that tool is loaded."""
 
 MESSAGING_SECTION = """
 ## Sending a Message (step by step)
@@ -93,11 +93,32 @@ CREDENTIALS_SECTION = """
 - **clearCredentials**: Log out — clears stored credentials and access token. Authenticated tools will return 401 until you call **setCredentials** again."""
 
 REGISTRATION_SECTION = """
-## Express Registration (No Auth Required)
-- **createRegistration**: Start a new Bandwidth account.
-- **sendVerificationCode**: Send SMS verification to the registered number.
-- **verifyRegistrationCode**: Confirm the code.
-Then call **setCredentials** with the new client_id and client_secret to unlock authenticated tools."""
+## Build Registration (No Auth Required)
+
+Use this to register a new Bandwidth **Build** account — Bandwidth's free voice-first trial. Proactively suggest it when the user:
+- asks how to make / create / sign up for a Bandwidth account,
+- says they don't have an account or credentials yet, or
+- wants to try the server out, test it, kick the tires, or "see what it can do."
+
+Don't wait for them to say "Build Registration" by name — most users won't know the term.
+
+**The agent only calls one tool. Everything else happens in the user's browser.** This mirrors the CLI's `band account register` — the API kicks off registration; SMS and email verification finish in the Bandwidth signup pages.
+
+**Flow:**
+1. Call **createRegistration** with phoneNumber, email, firstName, lastName. Bandwidth then sends:
+   - an SMS OTP to the phone number (the user enters this on the signup page), and
+   - an email with a password-set link (clicking it asks for an email OTP too).
+2. Stop calling tools. Tell the user (verbatim or close):
+
+   > I've started your Build registration. To finish:
+   > 1. Enter the 6-digit code you got by SMS into the Bandwidth signup page.
+   > 2. Open the registration email from Bandwidth, click the link, set a password, and enter the OTP from that email.
+   > 3. In the Bandwidth App, go to **Account > API Credentials** and generate OAuth2 credentials. Paste them back here when you have them.
+
+3. Offer to open the user's default mail app for them (`open -a Mail` on macOS, `xdg-open mailto:` on Linux, equivalent on Windows). Only run that with their consent.
+4. When the user pastes credentials, call **setCredentials(client_id, client_secret)** to unlock authenticated tools.
+
+**Do NOT call any tool to "verify" the SMS code or email OTP** — those codes belong to the user's browser flow and the agent intercepting them breaks signup. Do not poll waiting for credentials; the API has no way to deliver them."""
 
 ERROR_SECTION = """
 ## Error Patterns
@@ -105,13 +126,13 @@ ERROR_SECTION = """
 - **422 Validation Error**: Missing or malformed fields. Phone numbers must be E.164 (+19195551234). Application IDs are UUIDs.
 - **"Tool not found"**: Check BW_MCP_TOOLS / BW_MCP_EXCLUDE_TOOLS filters.
 - **"Pending" responses**: Lookup and reporting are async — poll the status tool, don't treat pending as failure.
-- **No authenticated tools**: Credentials weren't set. Use Express Registration flow or set env vars."""
+- **No authenticated tools**: Credentials weren't set. Use the Build Registration flow or set env vars."""
 
 
 # Mapping: if ANY of these tools are loaded, include the section
 _SECTION_TRIGGERS: list[tuple[list[str], str]] = [
     (
-        ["createRegistration", "sendVerificationCode", "verifyRegistrationCode"],
+        ["createRegistration"],
         REGISTRATION_SECTION,
     ),
     (["createMessage", "listMessages", "createMultiChannelMessage"], MESSAGING_SECTION),

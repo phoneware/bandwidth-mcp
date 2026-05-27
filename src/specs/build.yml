@@ -1,0 +1,100 @@
+openapi: 3.0.3
+info:
+  title: Bandwidth Build Registration
+  version: 1.0.0
+  description: |
+    Registration API for new Bandwidth Build accounts.
+
+    This API only kicks off registration — every subsequent step (SMS phone
+    verification, password set, API credential generation) happens in the
+    user's browser via links Bandwidth emails them. The agent must not try
+    to consume the SMS code or email OTP itself, or the user's browser flow
+    will break.
+
+    After createRegistration returns, the user must:
+
+      1. Enter the SMS OTP that arrives at the registered phone — in the
+         Bandwidth signup page, not back into chat.
+      2. Open the registration email and set a password (the page asks for
+         a second OTP delivered to the same email).
+      3. In the Bandwidth App, go to Account > API Credentials and generate
+         OAuth2 credentials.
+      4. Paste those credentials back into chat — the agent then calls
+         setCredentials to unlock authenticated tools.
+servers:
+  - url: https://api.bandwidth.com/v1/express
+    description: Production
+security: []
+paths:
+  /registration:
+    post:
+      operationId: createRegistration
+      summary: Initialize a new Build account registration
+      description: |
+        Submits a Build account registration. Bandwidth then sends the user
+        an SMS OTP (entered in the signup page) and an email with a
+        password-set link. The agent's job ends here — do not attempt to
+        complete verification via the API.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/registerRequest'
+      responses:
+        '200':
+          description: Registration created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/registerResponse'
+components:
+  schemas:
+    registerRequest:
+      type: object
+      required:
+        - phoneNumber
+        - email
+        - firstName
+        - lastName
+      additionalProperties: false
+      properties:
+        phoneNumber:
+          type: string
+          description: US phone number in E.164 format. Receives the SMS verification code the user enters in the signup page.
+          example: "+19195551234"
+        email:
+          type: string
+          description: Customer email address. Receives the password-set link that completes signup.
+          example: "jane@example.com"
+        firstName:
+          type: string
+          description: Customer's first name
+          example: "Jane"
+        lastName:
+          type: string
+          description: Customer's last name
+          example: "Doe"
+    registerResponse:
+      type: object
+      properties:
+        links:
+          type: array
+          items: {}
+        data:
+          type: object
+          properties:
+            message:
+              type: string
+              example: "Onboarding request received successfully"
+            status:
+              type: string
+              example: "USER_CREATION_PENDING"
+            registrationId:
+              type: string
+              format: uuid
+              example: "5fce253e-fdbc-433f-829b-6839d1edbebe"
+        errors:
+          type: array
+          items: {}

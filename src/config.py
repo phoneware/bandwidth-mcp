@@ -26,7 +26,7 @@ def load_config() -> Dict[str, Any]:
 
     if "BW_CLIENT_ID" not in config or "BW_CLIENT_SECRET" not in config:
         warnings.warn(
-            "BW_CLIENT_ID/BW_CLIENT_SECRET not set. Only Express Registration tools will be available. "
+            "BW_CLIENT_ID/BW_CLIENT_SECRET not set. Only Build Registration tools will be available. "
             "Use the setCredentials tool to authenticate and enable all API tools.",
             UserWarning,
         )
@@ -36,7 +36,6 @@ def load_config() -> Dict[str, Any]:
         "BW_MCP_TRANSPORT",
         "BW_MCP_HOST",
         "BW_MCP_PORT",
-        "BW_MCP_AUTH_TOKEN",
         "BW_MCP_BASE_URL",
         "BW_VOICE_FALLBACK_NUMBER",
     ]

@@ -10,8 +10,8 @@ cross-reference anything else to operate.
 The MCP server exposes a curated subset of Bandwidth's APIs as MCP tools.
 Tools are grouped into workflow-oriented profiles (voice, messaging, lookup,
 mfa, onboarding, recordings). Selecting a profile at startup limits the tools
-loaded so the agent's context stays small and matches the surface area of the
-`band` CLI.
+loaded so the agent's context stays small. The surface complements the `band`
+CLI — see [Limitations](#limitations) for what's not exposed here.
 
 What the server does:
 - One-shot API calls (create a message, place a call, run a lookup).
@@ -47,14 +47,16 @@ authenticated call.
 
 ### Host URLs
 
-Each host has an override env var; production is the default. Overrides exist
-for the four API hosts the server talks to:
+Production is the default. `BW_ENVIRONMENT=test` (or `uat`) flips the API and
+Voice hosts to the test environment in one shot, matching the CLI. Individual
+hosts can also be overridden with their own env var; per-host overrides win
+over `BW_ENVIRONMENT`.
 
-| Env var | Host |
+| Env var | Purpose |
 |---|---|
-| `BW_API_URL` | Iris / Numbers (Dashboard XML) base |
+| `BW_ENVIRONMENT` | `test` / `uat` to target the test environment; unset for prod |
+| `BW_API_URL` | API gateway base — also serves the Dashboard XML API under `/api/v2` |
 | `BW_VOICE_URL` | Voice API base |
-| `BW_DASHBOARD_URL` | Account / provisioning base |
 | `BW_MESSAGING_URL` | Messaging API base |
 
 Leave them unset for normal use.
@@ -295,12 +297,16 @@ surface the `recovery` hint and stop.
 - **No message-content retrieval.** Bandwidth does not store message bodies.
   After send, the text is gone. `listMessages` returns metadata only —
   timestamps, direction, segment counts.
-- **10DLC is read-only via lookups.** The server can surface campaign / number
-  registration status through the lookup tools, but it cannot create
-  campaigns, register brands, or assign numbers to campaigns. Those flows
-  require the Bandwidth App.
-- **Toll-free verification is status + submission only.** The server can check
-  TFV status and submit new requests; it cannot approve, expedite, or appeal.
+- **No 10DLC tools.** The server does not expose campaign creation, brand
+  registration, or number-to-campaign assignment. Use the `band` CLI
+  (`band tendlc`) or the Bandwidth App for these flows.
+- **No toll-free verification tools.** TFV status checks and submission are
+  available via the `band` CLI (`band tfv`), not here.
+- **No number ordering / provisioning.** Search, order, activation, and
+  release of new numbers live in the `band` CLI (`band number`) and the
+  Bandwidth App. The MCP server can list numbers already on the account.
+- **No sub-accounts, sites, locations, or peer assignments.** Account
+  topology management is CLI-only today.
 - **Build accounts are voice-only.** Anything outside voice / MFA-over-voice /
   app discovery returns `code: "feature_limit"`.
 - **No real-time media.** Voice is callback/BXML driven. The server cannot

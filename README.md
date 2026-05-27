@@ -43,8 +43,13 @@ BW_ACCOUNT_ID               # Your Bandwidth Account ID. Optional — auto-disco
 BW_NUMBER                   # A valid phone number on your Bandwidth account. Used with our Messaging and MFA APIs. Must be in E164 format.
 BW_MESSAGING_APPLICATION_ID # A Bandwidth Messaging Application ID. Used with our Messaging and MFA APIs.
 BW_VOICE_APPLICATION_ID     # A Bandwidth Voice Application ID. Used with our MFA API.
-BW_MCP_TOOLS                # The list of MCP tools you'd like to enable. If not set, all tools are enabled.
-BW_MCP_EXCLUDE_TOOLS        # The list of MCP tools you'd like to exclude. Takes priority over BW_MCP_TOOLS.
+BW_MCP_PROFILE              # Named tool preset (voice, messaging, mfa, lookup, onboarding, recordings, full). Comma-separated to combine.
+BW_MCP_TOOLS                # Explicit tool allowlist (comma-separated operationIds). Overrides BW_MCP_PROFILE.
+BW_MCP_EXCLUDE_TOOLS        # Explicit tool denylist (comma-separated). Takes priority over BW_MCP_TOOLS and profiles.
+BW_ENVIRONMENT              # `test` or `uat` to target Bandwidth's test environment. Defaults to prod.
+BW_API_URL                  # API gateway override. Also serves the Dashboard XML API under /api/v2.
+BW_VOICE_URL                # Voice API base override.
+BW_MESSAGING_URL            # Messaging API base override.
 ```
 
 #### Including or Excluding Tools
@@ -268,73 +273,58 @@ Profiles set via `BW_MCP_PROFILE` env var or `--profile` CLI flag. Use `BW_MCP_T
 
 ## Tools List
 
-### **Express Registration**
-- `createRegistration` - Register a new Bandwidth account
-- `sendVerificationCode` - Send SMS verification code
-- `verifyRegistrationCode` - Verify phone number with SMS code
+Tools are grouped into profiles that mirror the workflows you'd use the server for.
+Loading a single profile keeps your agent's context small. The full agent reference
+— including auth model, error codes, and the "trust nothing" guidance for async
+calls — lives in [`src/specs/AGENTS.md`](src/specs/AGENTS.md).
 
-> **Note:** Express Registration does not require authentication. These tools work without authentication.
+The default tool set is `voice` + `messaging` + `lookup` + `mfa` (plus
+`setCredentials` / `clearCredentials`, always loaded). Override with
+`BW_MCP_PROFILE`, `BW_MCP_TOOLS`, or `BW_MCP_EXCLUDE_TOOLS`.
 
-## **Multi-Factor Authentication (MFA)**
-- `generateMessagingCode` - Send MFA code via SMS
-- `generateVoiceCode` - Send MFA code via voice call
-- `verifyCode` - Verify a previously sent MFA code
+### Session management (always loaded)
+- `setCredentials` — authenticate the session (stdio transport only)
+- `clearCredentials` — log out of the session
 
-## **Phone Number Lookup**
-- `createLookup` - Create a phone number lookup request
-- `getLookupStatus` - Get status of an existing lookup request
+### Profile: `onboarding` (no auth required)
+- `createRegistration` — start Express Registration with contact details
+- `sendVerificationCode` — trigger SMS OTP to the registered number
+- `verifyRegistrationCode` — confirm the OTP; returns a client ID / secret
 
-## **Voice & Call Management**
-- `listCalls` - Returns a list of call events with filtering options
-- `listCall` - Returns details for a single call event
+### Profile: `voice`
+- `listApplications` / `createApplication` — find or create a voice app
+- `listPhoneNumbers` — find numbers on the account
+- `createCall` — place an outbound call
+- `getCallState` — read current call state (always poll after `createCall`)
+- `listCalls` — list call events with filtering
+- `updateCall` / `updateCallBxml` — redirect, hang up, or replace BXML
+- `generateBXML` — build valid BXML from a verb list
+- `respondToCallback` — queue a BXML response for an active callback (first-write-wins)
+- `getCallbackEvents` — read recent voice / messaging callback events
+- `configureCallbacks` — point an application's webhook URLs at this server
 
-## **Reporting & Analytics**
-- `getReports` - Get history of created reports
-- `createReport` - Create a new report instance
-- `getReportStatus` - Get status of a report
-- `getReportFile` - Download report file
-- `getReportDefinitions` - Get available report definitions
+### Profile: `messaging`
+- `createMessage` — send SMS / MMS
+- `listMessages` — query message history
+- `getInboundMessages` — read inbound messages captured by this server
+- `listMedia` / `getMedia` / `uploadMedia` / `deleteMedia` — manage MMS media
+- `configureCallbacks` — point an application's callbacks at this server
 
-## **Media Management**
-- `listMedia` - List your media files
-- `getMedia` - Download a specific media file
-- `uploadMedia` - Upload a media file
-- `deleteMedia` - Delete a media file
+### Profile: `mfa`
+- `generateMessagingCode` — send MFA code over SMS (full account)
+- `generateVoiceCode` — send MFA code over voice (Build OK)
+- `verifyCode` — validate a code the user entered
 
-## **Messaging**
-- `listMessages` - List messages with filtering options
-- `createMessage` - Send SMS/MMS messages
-- `createMultiChannelMessage` - Send multi-channel messages (RBM, SMS, MMS)
+### Profile: `lookup`
+- `createSyncLookup` — one-shot lookup for a small input set
+- `createAsyncBulkLookup` — kick off a bulk lookup
+- `getAsyncBulkLookup` — poll a bulk lookup
 
-## **Address Management**
-- `getAddressFields` - Get supported address fields by country
-- `validateAddress` - Validate an address and get excluded features
-- `listAddresses` - List all addresses
-- `createAddress` - Create an address
-- `getAddress` - Get an address by ID
-- `updateAddress` - Update an address
-- `listCityInfo` - List city info search results
+### Profile: `recordings`
+- `listCallRecordings` / `getCallRecording` — list / inspect recordings
+- `downloadCallRecording` — download the media
+- `deleteRecording` — remove a recording
+- `transcribeCallRecording` / `getRecordingTranscription` — request and read transcription
 
-## **Compliance**
-- `listDocumentTypes` - List all accepted document types and metadata requirements
-- `listEndUserTypes` - List all End user types and accepted metadata
-- `listEndUserActivationRequirements` - List requirements for End user activation
-- `getComplianceDocumentMetadata` - Get metadata of uploaded documents
-- `updateComplianceDocument` - Modify document data and file
-- `downloadComplianceDocuments` - Download document using document ID
-- `createComplianceDocument` - Upload a document with metadata
-- `listComplianceEndUsers` - List all End users of an account
-- `createComplianceEndUser` - Create an End user
-- `getComplianceEndUser` - Retrieve an End User by ID
-- `updateComplianceEndUser` - Update End user details
-
-## **Requirements Packages**
-- `listRequirementsPackages` - List all requirements packages
-- `createRequirementsPackage` - Create a requirements package
-- `getRequirementsPackage` - Retrieve a requirements package
-- `patchRequirementsPackage` - Update Requirements package
-- `getRequirementsPackageAssets` - Get assets attached to requirements package
-- `attachRequirementsPackageAsset` - Attach an asset to requirements package
-- `detachRequirementsPackageAsset` - Detach an asset from requirements package
-- `validateNumberActivation` - Validate number activation requirements
-- `getRequirementsPackageHistory` - Get history of a requirements package
+See [`src/specs/AGENTS.md`](src/specs/AGENTS.md) for argument-level guidance, polling
+patterns, and the structured error shape the server returns on failure.

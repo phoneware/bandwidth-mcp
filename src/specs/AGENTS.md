@@ -66,6 +66,25 @@ over `BW_ENVIRONMENT`.
 
 Leave them unset for normal use.
 
+### Local callback tunnel (dev only)
+
+Voice and messaging callbacks (`respondToCallback`, `getCallbackEvents`,
+`getInboundMessages`) need Bandwidth to reach this server over a public URL.
+In hosted mode that's `BW_MCP_BASE_URL`. For local development the server can
+open an ephemeral public tunnel for you instead of requiring ngrok:
+
+- Set `BW_MCP_DEV_TUNNEL=1` (plus a non-stdio transport like
+  `BW_MCP_TRANSPORT=streamable-http`, and leave `BW_MCP_BASE_URL` unset).
+- On startup the server runs `cloudflared` to get a `*.trycloudflare.com`
+  URL, sets it as `BW_MCP_BASE_URL`, and auto-points the voice app's
+  callbacks at it.
+
+Requires `cloudflared` on the PATH (`brew install cloudflared`); if it's
+missing the server logs a warning and starts without a tunnel. **Dev/testing
+only — never for production.** If a user is wiring up callbacks locally and
+hitting "my webhooks never arrive," suggest `BW_MCP_DEV_TUNNEL=1` rather than
+telling them to set up their own tunnel.
+
 ## Account types and capabilities
 
 Two account shapes matter:

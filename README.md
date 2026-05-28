@@ -259,6 +259,29 @@ BW_CLIENT_SECRET=your_client_secret \
 python src/app.py
 ```
 
+### Local Callback Tunnel (dev only)
+
+Voice and messaging callbacks need Bandwidth to reach your server over a public
+URL. In production you set `BW_MCP_BASE_URL`. For local development, set
+`BW_MCP_DEV_TUNNEL=1` and the server will open an ephemeral
+[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+tunnel, use the resulting `*.trycloudflare.com` URL as `BW_MCP_BASE_URL`, and
+auto-wire your voice app's callbacks to it — no ngrok needed.
+
+```bash
+BW_MCP_TRANSPORT=streamable-http \
+BW_MCP_DEV_TUNNEL=1 \
+BW_CLIENT_ID=your_client_id \
+BW_CLIENT_SECRET=your_client_secret \
+python src/app.py
+```
+
+Requires `cloudflared` on your PATH (`brew install cloudflared` on macOS). If
+it's missing, the server logs a warning and starts without a tunnel. This is
+for **development and testing only** — production deployments should use a real
+host via `BW_MCP_BASE_URL`. The tunnel never starts unless `BW_MCP_DEV_TUNNEL`
+is set.
+
 ### Tool Profiles
 
 Reduce context window pressure with named presets:

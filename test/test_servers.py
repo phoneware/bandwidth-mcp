@@ -33,7 +33,6 @@ async def test_full_mcp_server_creation(tools, excluded_tools, httpx_mock: HTTPX
 
     for name in [
         "messaging",
-        "multi-factor-auth",
         "phone-number-lookup-v2",
         "insights",
         "end-user-management",
@@ -62,13 +61,6 @@ async def test_full_mcp_server_creation(tools, excluded_tools, httpx_mock: HTTPX
 
 
 spec_list = [
-    (
-        "https://dev.bandwidth.com/spec/multi-factor-auth.yml",
-        {"BW_ACCESS_TOKEN": "test-token-mfa"},
-        "https://mfa.bandwidth.com/api/v1/",
-        {"generateMessagingCode", "generateVoiceCode", "verifyCode"},
-        "Bearer test-token-mfa",
-    ),
     (
         "https://dev.bandwidth.com/spec/phone-number-lookup-v2.yml",
         {"BW_ACCESS_TOKEN": "test-token-lookup"},

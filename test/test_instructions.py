@@ -54,15 +54,6 @@ def test_build_instructions_includes_voice_section():
     assert "BXML" in result
 
 
-def test_build_instructions_includes_mfa_section():
-    """MFA section appears when MFA tools loaded."""
-    result = build_instructions(
-        config={}, loaded_tools=["generateMessagingCode", "verifyCode"]
-    )
-    assert "generateMessagingCode" in result
-    assert "verifyCode" in result
-
-
 def test_build_instructions_includes_callback_section():
     """Callback section appears when callback tools loaded."""
     result = build_instructions(

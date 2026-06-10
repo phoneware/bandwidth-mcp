@@ -47,13 +47,6 @@ LOOKUP_SECTION = """
 Requires: BW_ACCOUNT_ID
 - **createLookup** then **getLookupStatus**: Async operation. Create the lookup, take the requestId from the response, poll getLookupStatus until status is complete. Don't treat "pending" as failure."""
 
-MFA_SECTION = """
-## Multi-Factor Authentication
-Requires: BW_ACCOUNT_ID, BW_NUMBER, application ID for chosen channel
-- **generateMessagingCode**: Send MFA code via SMS.
-- **generateVoiceCode**: Send MFA code via voice call.
-- **verifyCode**: Verify a previously sent code. Provide `to`, `scope`, and the entered `code`."""
-
 VOICE_SECTION = """
 ## Making a Voice Call (step by step)
 
@@ -145,7 +138,6 @@ _SECTION_TRIGGERS: list[tuple[list[str], str]] = [
         ],
         LOOKUP_SECTION,
     ),
-    (["generateMessagingCode", "generateVoiceCode", "verifyCode"], MFA_SECTION),
     (["createCall", "generateBXML", "respondToCallback"], VOICE_SECTION),
     (
         ["getInboundMessages", "getCallbackEvents", "configureCallbacks"],

@@ -20,9 +20,6 @@ _SPECS_DIR = Path(specs.__file__).parent
 # is fine — only the operationIds in the active profile get registered.
 api_server_info: Dict[str, Dict[str, Any]] = {
     "messaging": {"url": "https://dev.bandwidth.com/spec/messaging.yml"},
-    "multi-factor-auth": {
-        "url": "https://dev.bandwidth.com/spec/multi-factor-auth.yml"
-    },
     "phone-number-lookup": {
         "url": "https://dev.bandwidth.com/spec/phone-number-lookup-v2.yml"
     },

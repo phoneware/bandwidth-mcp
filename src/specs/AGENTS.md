@@ -9,7 +9,7 @@ cross-reference anything else to operate.
 
 The MCP server exposes a curated subset of Bandwidth's APIs as MCP tools.
 Tools are grouped into workflow-oriented profiles (voice, messaging, lookup,
-mfa, onboarding, recordings). Selecting a profile at startup limits the tools
+onboarding, recordings). Selecting a profile at startup limits the tools
 loaded so the agent's context stays small. The surface complements the `band`
 CLI — see [Limitations](#limitations) for what's not exposed here.
 
@@ -90,10 +90,10 @@ telling them to set up their own tunnel.
 Two account shapes matter:
 
 - **Bandwidth Build account.** Voice-only, credit-based. Messaging, number
-  ordering/lookup-by-account, MFA over SMS, toll-free verification, and 10DLC
-  are not available. A Build account ships with one pre-provisioned voice
+  ordering/lookup-by-account, toll-free verification, and 10DLC are not
+  available. A Build account ships with one pre-provisioned voice
   application and one phone number — the agent does not create either.
-- **Full account.** Messaging, voice, lookup, MFA, and numbers all available
+- **Full account.** Messaging, voice, lookup, and numbers all available
   subject to the credential's roles.
 
 When a tool is invoked against an account that doesn't have the required
@@ -177,16 +177,6 @@ Auth: client_credentials. Full account only — Build returns `feature_limit`.
 | `getInboundMessages` | Read inbound SMS/MMS captured by this server | filter by number and time |
 | `listMedia` / `getMedia` / `uploadMedia` / `deleteMedia` | Manage MMS media | URL from `uploadMedia` feeds `createMessage` |
 | `configureCallbacks` | Point an application's callbacks at this server | confirm via `listApplications` |
-
-### Profile: `mfa`
-
-Auth: client_credentials.
-
-| Tool | Purpose | Check after |
-|---|---|---|
-| `generateMessagingCode` | Send MFA code over SMS (full account) | response carries scope/issue time |
-| `generateVoiceCode` | Send MFA code over voice (Build OK) | response carries scope/issue time |
-| `verifyCode` | Validate a code the user entered | inspect `valid` boolean |
 
 ### Profile: `lookup`
 
@@ -374,8 +364,8 @@ surface the `recovery` hint and stop.
   Bandwidth App. The MCP server can list numbers already on the account.
 - **No sub-accounts, sites, locations, or peer assignments.** Account
   topology management is CLI-only today.
-- **Build accounts are voice-only.** Anything outside voice / MFA-over-voice /
-  app discovery returns `code: "feature_limit"`.
+- **Build accounts are voice-only.** Anything outside voice / app discovery
+  returns `code: "feature_limit"`.
 - **No real-time media.** Voice is callback/BXML driven. The server cannot
   stream audio, inject media mid-stream, or act as a media relay.
 - **EventStore is in-memory.** Callback events are not durable across server

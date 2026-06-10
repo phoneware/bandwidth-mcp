@@ -21,7 +21,6 @@ async def test_instructions_set_after_setup(httpx_mock: HTTPXMock, monkeypatch):
 
     for name in [
         "messaging",
-        "multi-factor-auth",
         "phone-number-lookup-v2",
         "insights",
         "end-user-management",
@@ -53,7 +52,6 @@ async def test_callback_tools_available_after_setup(httpx_mock: HTTPXMock, monke
 
     for name in [
         "messaging",
-        "multi-factor-auth",
         "phone-number-lookup-v2",
         "insights",
         "end-user-management",

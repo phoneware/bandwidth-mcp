@@ -40,10 +40,10 @@ The following variables are optional or conditionally required:
 
 ```sh
 BW_ACCOUNT_ID               # Your Bandwidth Account ID. Optional — auto-discovered from JWT claims after authentication.
-BW_NUMBER                   # A valid phone number on your Bandwidth account. Used with our Messaging and MFA APIs. Must be in E164 format.
-BW_MESSAGING_APPLICATION_ID # A Bandwidth Messaging Application ID. Used with our Messaging and MFA APIs.
-BW_VOICE_APPLICATION_ID     # A Bandwidth Voice Application ID. Used with our MFA API.
-BW_MCP_PROFILE              # Named tool preset (voice, messaging, mfa, lookup, onboarding, recordings, full). Comma-separated to combine.
+BW_NUMBER                   # A valid phone number on your Bandwidth account. Used with our Messaging API. Must be in E164 format.
+BW_MESSAGING_APPLICATION_ID # A Bandwidth Messaging Application ID. Used with our Messaging API.
+BW_VOICE_APPLICATION_ID     # A Bandwidth Voice Application ID. Used to auto-configure voice callbacks in hosted mode.
+BW_MCP_PROFILE              # Named tool preset (voice, messaging, lookup, onboarding, recordings, full). Comma-separated to combine.
 BW_MCP_TOOLS                # Explicit tool allowlist (comma-separated operationIds). Overrides BW_MCP_PROFILE.
 BW_MCP_EXCLUDE_TOOLS        # Explicit tool denylist (comma-separated). Takes priority over BW_MCP_TOOLS and profiles.
 BW_ENVIRONMENT              # `test` or `uat` to target Bandwidth's test environment. Defaults to prod.
@@ -303,7 +303,7 @@ Loading a single profile keeps your agent's context small. The full agent refere
 — including auth model, error codes, and the "trust nothing" guidance for async
 calls — lives in [`src/specs/AGENTS.md`](src/specs/AGENTS.md).
 
-The default tool set is `voice` + `messaging` + `lookup` + `mfa` (plus
+The default tool set is `voice` + `messaging` + `lookup` (plus
 `setCredentials` / `clearCredentials`, always loaded). Override with
 `BW_MCP_PROFILE`, `BW_MCP_TOOLS`, or `BW_MCP_EXCLUDE_TOOLS`.
 
@@ -333,11 +333,6 @@ Kicks off a new Bandwidth Build account. Only one tool is exposed — SMS verifi
 - `getInboundMessages` — read inbound messages captured by this server
 - `listMedia` / `getMedia` / `uploadMedia` / `deleteMedia` — manage MMS media
 - `configureCallbacks` — point an application's callbacks at this server
-
-### Profile: `mfa`
-- `generateMessagingCode` — send MFA code over SMS (full account)
-- `generateVoiceCode` — send MFA code over voice (Build OK)
-- `verifyCode` — validate a code the user entered
 
 ### Profile: `lookup`
 - `createSyncLookup` — one-shot lookup for a small input set

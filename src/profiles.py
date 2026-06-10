@@ -59,12 +59,6 @@ PROFILES: dict[str, list[str]] = {
         "getInboundMessages",
         "configureCallbacks",
     ],
-    # MFA
-    "mfa": [
-        "generateMessagingCode",
-        "generateVoiceCode",
-        "verifyCode",
-    ],
     # Phone number lookup
     "lookup": [
         "createSyncLookup",
@@ -76,12 +70,11 @@ PROFILES: dict[str, list[str]] = {
 # Always included regardless of profile
 _ALWAYS_TOOLS = ["setCredentials", "clearCredentials"]
 
-# Default: voice + messaging + lookup + MFA
+# Default: voice + messaging + lookup
 DEFAULT_TOOLS = list(dict.fromkeys(
     PROFILES["voice"]
     + PROFILES["messaging"]
     + PROFILES["lookup"]
-    + PROFILES["mfa"]
     + _ALWAYS_TOOLS
 ))
 

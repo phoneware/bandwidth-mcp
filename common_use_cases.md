@@ -41,25 +41,6 @@ BW_MCP_TOOLS=createLookup,getLookupStatus
 --tools createLookup,getLookupStatus
 ```
 
-## Utilizing our MFA Service
-
-To create and verify multi-factor authentication codes, you'll need our three MFA tools.
-- `generateMessagingCode` - Used to generate and send an MFA code via SMS
-- `generateVoiceCode` - Use to generate and send an MFA code via a phone call
-- `verifyCode` - Verify an MFA code sent with one of the previous tools
-
-Generating Messaging and Voice codes requires the `BW_MESSAGING_APPLICATION_ID` and `BW_VOICE_APPLICATION_ID` environment variables respectively.
-Both of these tools also require `BW_ACCOUNT_ID` and `BW_NUMBER`.
-
-**Enabling these tools**
-```sh
-# Environment Variable
-BW_MCP_TOOLS=generateMessagingCode,generateVoiceCode,verifyCode
-
-# CLI Flag
---tools generateMessagingCode,generateVoiceCode,verifyCode
-```
-
 ## Adding a Business End User
 
 To add an end user, you'll need three specific Compliance endpoints.

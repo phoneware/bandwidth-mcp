@@ -2,6 +2,7 @@ import pytest
 from fastmcp import FastMCP
 from src.event_store import EventStore
 from src.tools.callbacks import register_callback_tools
+from utils import tool_map
 
 
 @pytest.fixture
@@ -18,7 +19,7 @@ def mcp_with_callbacks(event_store):
 
 @pytest.mark.asyncio
 async def test_callback_tools_registered(mcp_with_callbacks):
-    tools = await mcp_with_callbacks.get_tools()
+    tools = await tool_map(mcp_with_callbacks)
     assert "getInboundMessages" in tools
     assert "getCallbackEvents" in tools
 

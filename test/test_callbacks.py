@@ -14,7 +14,7 @@ def event_store():
 def client(event_store):
     mcp = FastMCP(name="Callback Test")
     register_callback_routes(mcp, event_store)
-    app = mcp.sse_app()
+    app = mcp.http_app()
     return TestClient(app)
 
 

@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 from fastmcp import FastMCP
 from pytest_httpx import HTTPXMock
-from utils import create_mock
+from utils import create_mock, tool_map
 
 
 @pytest.mark.asyncio
@@ -64,7 +64,7 @@ async def test_callback_tools_available_after_setup(httpx_mock: HTTPXMock, monke
 
     test_mcp = FastMCP(name="Integration Test")
     async with lifespan(test_mcp):
-        tools = await test_mcp.get_tools()
+        tools = await tool_map(test_mcp)
         assert "getInboundMessages" in tools
         assert "getCallbackEvents" in tools
         assert "generateBXML" in tools

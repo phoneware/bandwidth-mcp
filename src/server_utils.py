@@ -7,7 +7,8 @@ import httpx
 from pathlib import Path
 from fastmcp import FastMCP
 from fastmcp.resources import FunctionResource
-from fastmcp.server.openapi import MCPType, HTTPRoute
+from fastmcp.server.providers.openapi import MCPType
+from fastmcp.utilities.openapi import HTTPRoute
 from typing import Dict, List, Optional, Any, Callable
 
 from resources import get_bandwidth_resources
@@ -38,11 +39,11 @@ def _load_spec_cache(url: str) -> dict | None:
 async def print_server_info(mcp: FastMCP) -> None:
     """Print concise server information."""
 
-    all_tools = await mcp.get_tools()
-    all_resources = await mcp.get_resources()
+    all_tools = await mcp.list_tools()
+    all_resources = await mcp.list_resources()
 
-    tool_names = list(all_tools.keys())
-    resource_names = [resource.name for resource in all_resources.values()]
+    tool_names = [tool.name for tool in all_tools]
+    resource_names = [resource.name for resource in all_resources]
 
     print("Bandwidth MCP Server Started")
     print(

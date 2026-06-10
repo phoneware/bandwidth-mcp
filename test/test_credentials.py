@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import AsyncMock, patch
 from fastmcp import FastMCP
+from utils import tool_map
 
 
 @pytest.mark.asyncio
@@ -11,7 +12,7 @@ async def test_set_credentials_tool_registered():
     mcp = FastMCP(name="Test")
     config = {}
     register_credentials_tools(mcp, config)
-    tools = await mcp.get_tools()
+    tools = await tool_map(mcp)
     assert "setCredentials" in tools
 
 
@@ -75,7 +76,7 @@ async def test_clear_credentials_tool_registered():
     mcp = FastMCP(name="Test")
     config = {}
     register_credentials_tools(mcp, config)
-    tools = await mcp.get_tools()
+    tools = await tool_map(mcp)
     assert "clearCredentials" in tools
 
 

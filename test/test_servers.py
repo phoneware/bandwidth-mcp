@@ -1,7 +1,7 @@
 import pytest
 from fastmcp import FastMCP
 from pytest_httpx import HTTPXMock
-from utils import create_mock
+from utils import create_mock, tool_map, server_client
 from src.servers import create_bandwidth_mcp, _create_server
 
 
@@ -42,9 +42,9 @@ async def test_full_mcp_server_creation(tools, excluded_tools, httpx_mock: HTTPX
         create_mock(httpx_mock, name)
 
     mcp = await create_mcp_server("Test MCP", tools, excluded_tools)
-    mcp_tools = await mcp.get_tools()
+    mcp_tools = await tool_map(mcp)
     mcp_tool_names = list(mcp_tools.keys())
-    mcp_resources = await mcp.get_resources()
+    mcp_resources = await mcp.list_resources()
 
     assert isinstance(mcp, FastMCP)
     assert len(mcp_tools) > 0, "Should have at least some tools loaded"
@@ -81,10 +81,10 @@ async def test_individual_mcp_server_creation(
     """Test that individual MCP servers are created correctly."""
 
     server = await _create_server(url, None, config)
-    server_client = server._client
 
-    server_tools = await server.get_tools()
+    server_tools = await tool_map(server)
     server_tool_names = set(server_tools.keys())
+    client = await server_client(server)
 
     assert isinstance(server, FastMCP)
     assert (
@@ -94,14 +94,14 @@ async def test_individual_mcp_server_creation(
         server_tool_names == expected_tools
     ), f"Expected tools {expected_tools}, got {server_tool_names}"
     assert (
-        server_client.headers["User-Agent"] == "Bandwidth MCP Server"
-    ), f"Expected User-Agent 'Bandwidth MCP Server', got '{server_client.headers['User-Agent']}'"
+        client.headers["User-Agent"] == "Bandwidth MCP Server"
+    ), f"Expected User-Agent 'Bandwidth MCP Server', got '{client.headers['User-Agent']}'"
     assert (
-        server_client.base_url == expected_base_url
-    ), f"Expected base URL '{expected_base_url}', got '{server_client.base_url}'"
+        client.base_url == expected_base_url
+    ), f"Expected base URL '{expected_base_url}', got '{client.base_url}'"
     assert (
-        server_client.headers["Authorization"] == expected_auth_header
-    ), f"Expected auth header '{expected_auth_header}', got '{server_client.headers['Authorization']}'"
+        client.headers["Authorization"] == expected_auth_header
+    ), f"Expected auth header '{expected_auth_header}', got '{client.headers['Authorization']}'"
 
 
 @pytest.mark.asyncio

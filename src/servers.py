@@ -147,7 +147,7 @@ async def create_bandwidth_mcp(
                 route_map_fn=spec_route_map_fn,
                 config=config,
             )
-            await mcp.import_server(server)
+            mcp.mount(server)
         except Exception as e:
             print(f"Warning: Failed to create server for {api_name}: {e}")
 

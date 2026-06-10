@@ -2,8 +2,6 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
-os.environ["FASTMCP_EXPERIMENTAL_ENABLE_NEW_OPENAPI_PARSER"] = "true"
-
 from fastmcp import FastMCP
 from servers import create_bandwidth_mcp
 from config import (
@@ -74,8 +72,10 @@ async def lifespan(mcp_instance: FastMCP):
         except Exception as e:
             print(f"Warning: Failed to auto-configure callbacks: {e}")
 
-    all_tools = await mcp_instance.get_tools()
-    mcp_instance.instructions = build_instructions(_config, list(all_tools.keys()))
+    all_tools = await mcp_instance.list_tools()
+    mcp_instance.instructions = build_instructions(
+        _config, [tool.name for tool in all_tools]
+    )
 
     yield
 

@@ -2,6 +2,7 @@
 
 import pytest
 from fastmcp import FastMCP
+from utils import tool_map
 
 
 @pytest.mark.asyncio
@@ -11,7 +12,7 @@ async def test_set_credentials_registered_when_transport_unset(monkeypatch):
 
     mcp = FastMCP(name="Test")
     register_credentials_tools(mcp, {})
-    tools = await mcp.get_tools()
+    tools = await tool_map(mcp)
     assert "setCredentials" in tools
     assert "clearCredentials" in tools
 
@@ -23,7 +24,7 @@ async def test_set_credentials_registered_when_transport_stdio(monkeypatch):
 
     mcp = FastMCP(name="Test")
     register_credentials_tools(mcp, {})
-    tools = await mcp.get_tools()
+    tools = await tool_map(mcp)
     assert "setCredentials" in tools
     assert "clearCredentials" in tools
 
@@ -35,7 +36,7 @@ async def test_set_credentials_not_registered_for_streamable_http(monkeypatch):
 
     mcp = FastMCP(name="Test")
     register_credentials_tools(mcp, {})
-    tools = await mcp.get_tools()
+    tools = await tool_map(mcp)
     assert "setCredentials" not in tools
     assert "clearCredentials" in tools
 
@@ -47,7 +48,7 @@ async def test_set_credentials_not_registered_for_sse(monkeypatch):
 
     mcp = FastMCP(name="Test")
     register_credentials_tools(mcp, {})
-    tools = await mcp.get_tools()
+    tools = await tool_map(mcp)
     assert "setCredentials" not in tools
     assert "clearCredentials" in tools
 

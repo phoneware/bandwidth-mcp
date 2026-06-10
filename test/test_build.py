@@ -1,5 +1,5 @@
 import pytest
-from utils import create_mock
+from utils import create_mock, tool_map, server_client
 from src.servers import _create_server
 
 
@@ -13,7 +13,7 @@ async def test_build_server_has_one_tool(httpx_mock):
         config={},
 
     )
-    tools = await server.get_tools()
+    tools = await tool_map(server)
     assert len(tools) == 1
 
 
@@ -27,7 +27,7 @@ async def test_build_server_tool_name(httpx_mock):
         config={},
 
     )
-    tools = await server.get_tools()
+    tools = await tool_map(server)
     tool_names = sorted(tools.keys())
     assert tool_names == ["createRegistration"]
 
@@ -42,10 +42,11 @@ async def test_build_server_no_auth_header(httpx_mock):
         config={},
 
     )
-    tools = await server.get_tools()
+    tools = await tool_map(server)
     assert len(tools) == 1
+    client = await server_client(server)
     assert "authorization" not in {
-        k.lower() for k in server._client.headers.keys()
+        k.lower() for k in client.headers.keys()
     }, "Build registration server should not have an Authorization header"
 
 
@@ -59,7 +60,7 @@ async def test_create_registration_tool_parameters(httpx_mock):
         config={},
 
     )
-    tools = await server.get_tools()
+    tools = await tool_map(server)
     create_reg = tools["createRegistration"]
 
     params = create_reg.parameters

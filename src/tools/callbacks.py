@@ -58,25 +58,22 @@ async def configure_callbacks_flow(
     base_url: str,
     types: Optional[list[str]] = None,
 ) -> dict:
-    """Update a Bandwidth application's callback URLs via the Dashboard XML API."""
-    if types is None:
-        types = ["messaging", "voice"]
+    """Update a Bandwidth application's callback URLs via the Dashboard XML API.
 
+    The `types` argument is advisory only. A Bandwidth application has exactly
+    one ServiceType, and the Dashboard API rejects callback fields that don't
+    match it (error 12962: "CallbackUrl is set but it is only allowed with
+    ServiceType Messaging-V2", and the converse for voice). So the fields to
+    set are derived from the app's actual ServiceType, fetched below — not
+    from the caller's hint.
+    """
     token = config.get("BW_ACCESS_TOKEN")
     account_id = config.get("BW_ACCOUNT_ID")
     if not token or not account_id:
         return {"error": "Not authenticated. Call setCredentials first."}
 
-    # Build callback URLs
-    callbacks: dict = {}
-    if "voice" in types:
-        callbacks["callInitiatedCallbackUrl"] = f"{base_url}/callbacks/voice/answer"
-        callbacks["callStatusCallbackUrl"] = f"{base_url}/callbacks/voice/disconnect"
-    if "messaging" in types:
-        callbacks["callbackUrl"] = f"{base_url}/callbacks/messaging/inbound"
-        callbacks["statusCallbackUrl"] = f"{base_url}/callbacks/messaging/status"
-
-    # First GET the current app to preserve its name and service type
+    # GET the app first — we need its ServiceType to choose the right callback
+    # fields, plus AppName to preserve on the PUT.
     api_url = f"{dashboard_api_base()}/accounts/{account_id}/applications/{application_id}"
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -89,7 +86,9 @@ async def configure_callbacks_flow(
     from xml.etree.ElementTree import fromstring
 
     app_xml = fromstring(get_resp.text)
-    app_el = app_xml.find(".//Application") or app_xml
+    app_el = app_xml.find(".//Application")
+    if app_el is None:
+        app_el = app_xml
     app_name = ""
     service_type = ""
     for child in app_el:
@@ -97,6 +96,21 @@ async def configure_callbacks_flow(
             app_name = child.text or ""
         if child.tag == "ServiceType":
             service_type = child.text or ""
+
+    # Choose callbacks by the app's actual ServiceType. Sending the wrong
+    # family's fields is what the API rejects with 400/12962.
+    callbacks: dict = {}
+    if service_type == "Voice-V2":
+        callbacks["callInitiatedCallbackUrl"] = f"{base_url}/callbacks/voice/answer"
+        callbacks["callStatusCallbackUrl"] = f"{base_url}/callbacks/voice/disconnect"
+    elif service_type == "Messaging-V2":
+        callbacks["callbackUrl"] = f"{base_url}/callbacks/messaging/inbound"
+        callbacks["statusCallbackUrl"] = f"{base_url}/callbacks/messaging/status"
+    else:
+        return {
+            "error": f"Cannot configure callbacks for service type '{service_type or 'unknown'}'",
+            "application_id": application_id,
+        }
 
     # Build the full XML with required fields + updated callbacks
     xml_parts = [
@@ -136,7 +150,7 @@ async def configure_callbacks_flow(
         "status": "configured",
         "application_id": application_id,
         "base_url": base_url,
-        "types": types,
+        "serviceType": service_type,
         "callbacks": callbacks,
     }
 

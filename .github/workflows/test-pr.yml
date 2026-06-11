@@ -33,6 +33,5 @@ jobs:
 
       - name: Install Packages and Test
         run: |
-          pip install -r requirements.txt
-          pip install -r dev-requirements.txt
+          pip install ".[dev]"
           python -m pytest -v

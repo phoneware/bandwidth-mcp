@@ -1,38 +1,78 @@
 import os
-from typing import Dict, List, Optional
+import warnings
+from typing import Any, Dict, List, Optional
 from argparse import ArgumentParser, Namespace
 
+from profiles import resolve_profile, DEFAULT_TOOLS
 
-def load_config() -> Dict[str, str]:
+
+def load_config() -> Dict[str, Any]:
     """Load Bandwidth configuration from environment variables."""
-    config = {}
-    required_vars = ["BW_USERNAME", "BW_PASSWORD"]
-    optional_vars = [
+    config: Dict[str, Any] = {}
+
+    all_vars = [
+        "BW_CLIENT_ID",
+        "BW_CLIENT_SECRET",
         "BW_ACCOUNT_ID",
         "BW_NUMBER",
         "BW_MESSAGING_APPLICATION_ID",
         "BW_VOICE_APPLICATION_ID",
     ]
 
-    # Add all variables that exist
-    for var in required_vars + optional_vars:
-        value = os.getenv(var)
+    for var in all_vars:
+        value = os.environ.get(var)
         if value:
             config[var] = value
 
-    # Required variables
-    for var in required_vars:
-        if var not in config.keys():
-            raise ValueError(f"Missing required environment variable: {var}")
+    if "BW_CLIENT_ID" not in config or "BW_CLIENT_SECRET" not in config:
+        warnings.warn(
+            "BW_CLIENT_ID/BW_CLIENT_SECRET not set. Only Build Registration tools will be available. "
+            "Use the setCredentials tool to authenticate and enable all API tools.",
+            UserWarning,
+        )
+
+    # Transport config
+    transport_vars = [
+        "BW_MCP_TRANSPORT",
+        "BW_MCP_HOST",
+        "BW_MCP_PORT",
+        "BW_MCP_BASE_URL",
+        "BW_VOICE_FALLBACK_NUMBER",
+    ]
+    for var in transport_vars:
+        value = os.environ.get(var)
+        if value:
+            config[var] = value
 
     return config
+
+
+async def authenticate_config(config: Dict[str, Any]) -> None:
+    """If client credentials are present, do OAuth2 token exchange.
+
+    Mutates config in place — adds BW_ACCESS_TOKEN and BW_ACCOUNT_ID.
+    """
+    if "BW_CLIENT_ID" not in config or "BW_CLIENT_SECRET" not in config:
+        return
+
+    from oauth import get_oauth_token
+
+    try:
+        token_data = await get_oauth_token(
+            config["BW_CLIENT_ID"], config["BW_CLIENT_SECRET"]
+        )
+        config["BW_ACCESS_TOKEN"] = token_data["access_token"]
+        accounts = token_data["accounts"]
+        if accounts and "BW_ACCOUNT_ID" not in config:
+            config["BW_ACCOUNT_ID"] = accounts[0]
+    except Exception as e:
+        warnings.warn(f"OAuth2 token exchange failed at startup: {e}", UserWarning)
 
 
 def _parse_cli_args(args: Optional[List[str]] = None) -> Namespace:
     """Parse command line arguments with proper type hints."""
     parser = ArgumentParser(description="Bandwidth MCP Server")
 
-    # Tools
     parser.add_argument(
         "--tools",
         help="Comma-separated list of tool names to enable. If not specified, all tools are enabled.",
@@ -42,6 +82,22 @@ def _parse_cli_args(args: Optional[List[str]] = None) -> Namespace:
         "--exclude-tools",
         help="Comma-separated list of tool names to disable.",
         type=str,
+    )
+    parser.add_argument(
+        "--profile",
+        help="Named tool profile (or comma-separated profiles) to enable. Use 'full' for all tools.",
+        type=str,
+    )
+    parser.add_argument(
+        "--transport",
+        help="Transport type: stdio (default), sse, or streamable-http.",
+        type=str,
+        choices=["stdio", "sse", "streamable-http"],
+    )
+    parser.add_argument(
+        "--port",
+        help="Port for HTTP transport (default: 8080).",
+        type=int,
     )
 
     return parser.parse_known_args(args)[0]
@@ -54,25 +110,59 @@ def _parse_arg_list(arg_string: str) -> List[str]:
 
 def _parse_flags(cli_arg: Optional[str], env_var: str) -> Optional[List[str]]:
     """Get flag values from CLI argument or environment variable."""
-    # Try CLI argument first
     if cli_arg:
         return _parse_arg_list(cli_arg)
-
-    # Fall back to environment variable
     env_value = os.getenv(env_var)
     if env_value:
         return _parse_arg_list(env_value)
-
     return None
 
 
-def get_enabled_tools() -> Optional[List[str]]:
-    """Get the list of enabled tools from CLI args or environment variable."""
+def get_profile_tools() -> Optional[List[str]]:
+    """Get tool list from profile, if specified."""
     args = _parse_cli_args()
-    return _parse_flags(args.tools, "BW_MCP_TOOLS")
+    profile_str = args.profile or os.getenv("BW_MCP_PROFILE")
+    return resolve_profile(profile_str)
+
+
+def get_enabled_tools() -> Optional[List[str]]:
+    """Get the list of enabled tools from CLI args, env var, or profile.
+
+    Priority: --tools > BW_MCP_TOOLS > --profile > BW_MCP_PROFILE > default profile.
+    Use BW_MCP_PROFILE=full to load everything.
+
+    Returns None to mean "no filter — load every tool the specs expose."
+    """
+    args = _parse_cli_args()
+    explicit = _parse_flags(args.tools, "BW_MCP_TOOLS")
+    if explicit:
+        return explicit
+    # "full" must be checked on the raw string. resolve_profile() returns None
+    # for both "no profile set" and "profile=full"; without this guard, full
+    # would fall through to DEFAULT_TOOLS instead of loading everything.
+    profile_str = args.profile or os.getenv("BW_MCP_PROFILE")
+    if profile_str:
+        names = [p.strip() for p in profile_str.split(",") if p.strip()]
+        if "full" in names:
+            return None
+    profile_tools = resolve_profile(profile_str)
+    if profile_tools is not None:
+        return profile_tools
+    # No explicit config — use the default curated set
+    return DEFAULT_TOOLS
 
 
 def get_excluded_tools() -> Optional[List[str]]:
     """Get the list of excluded tools from CLI args or environment variable."""
     args = _parse_cli_args()
     return _parse_flags(args.exclude_tools, "BW_MCP_EXCLUDE_TOOLS")
+
+
+def get_transport_config() -> Dict[str, Any]:
+    """Get transport configuration from CLI args and env vars."""
+    args = _parse_cli_args()
+    return {
+        "transport": args.transport or os.getenv("BW_MCP_TRANSPORT", "stdio"),
+        "host": os.getenv("BW_MCP_HOST", "127.0.0.1"),
+        "port": args.port or int(os.getenv("BW_MCP_PORT", "8080")),
+    }

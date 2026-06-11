@@ -17,11 +17,10 @@ cd mcp-server
 ### Prerequisites
 
 In order to use the Bandwidth MCP Server, you'll need the following things, set as environment variables.
-- Valid Bandwidth API Credentials
-    - This will be the username and password of your Bandwidth API user
+- Valid Bandwidth OAuth2 Client Credentials
+    - You will need a client ID and client secret for your Bandwidth API application
     - For more info on creating API credentials, see our [Credentials](https://dev.bandwidth.com/docs/credentials) page
-- Bandwidth Account ID
-    - The ID of the account you'd like to make API calls on behalf of
+- Your account ID is auto-discovered from JWT claims after authentication — you do not need to provide it
 
 ### Configuration
 
@@ -33,19 +32,24 @@ The server will respect both system environment variables and those configured v
 The following variables will be required to use the server:
 
 ```sh
-BW_USERNAME     # Your Bandwidth API User Username
-BW_PASSWORD     # Your Bandwidth API User Password
+BW_CLIENT_ID     # Your Bandwidth OAuth2 client ID
+BW_CLIENT_SECRET # Your Bandwidth OAuth2 client secret
 ```
 
 The following variables are optional or conditionally required:
 
 ```sh
-BW_ACCOUNT_ID               # Your Bandwidth Account ID. Required for most API operations.
-BW_NUMBER                   # A valid phone number on your Bandwidth account. Used with our Messaging and MFA APIs. Must be in E164 format.
-BW_MESSAGING_APPLICATION_ID # A Bandwidth Messaging Application ID. Used with our Messaging and MFA APIs.
-BW_VOICE_APPLICATION_ID     # A Bandwidth Voice Application ID. Used with our MFA API.
-BW_MCP_TOOLS                # The list of MCP tools you'd like to enable. If not set, all tools are enabled.
-BW_MCP_EXCLUDE_TOOLS        # The list of MCP tools you'd like to exclude. Takes priority over BW_MCP_TOOLS.
+BW_ACCOUNT_ID               # Your Bandwidth Account ID. Optional — auto-discovered from JWT claims after authentication.
+BW_NUMBER                   # A valid phone number on your Bandwidth account. Used with our Messaging API. Must be in E164 format.
+BW_MESSAGING_APPLICATION_ID # A Bandwidth Messaging Application ID. Used with our Messaging API.
+BW_VOICE_APPLICATION_ID     # A Bandwidth Voice Application ID. Used to auto-configure voice callbacks in hosted mode.
+BW_MCP_PROFILE              # Named tool preset (voice, messaging, lookup, onboarding, recordings, full). Comma-separated to combine.
+BW_MCP_TOOLS                # Explicit tool allowlist (comma-separated operationIds). Overrides BW_MCP_PROFILE.
+BW_MCP_EXCLUDE_TOOLS        # Explicit tool denylist (comma-separated). Takes priority over BW_MCP_TOOLS and profiles.
+BW_ENVIRONMENT              # `test` or `uat` to target Bandwidth's test environment. Defaults to prod.
+BW_API_URL                  # API gateway override. Also serves the Dashboard XML API under /api/v2.
+BW_VOICE_URL                # Voice API base override.
+BW_MESSAGING_URL            # Messaging API base override.
 ```
 
 #### Including or Excluding Tools
@@ -83,6 +87,14 @@ BW_MCP_EXCLUDE_TOOLS=createLookup,getLookupStatus
 
 # CLI Flag
 --exclude-tools createLookup,getLookupStatus
+```
+
+**Account Creation Flow (Build Registration)**
+
+Bandwidth Build is the free voice-first trial. Use this profile when the user has no credentials yet. The MCP only exposes `createRegistration` to kick things off — SMS verification, password set, and API credential generation all happen in pages Bandwidth links the user to. The agent shouldn't try to consume the SMS code over the API; it belongs to the user's browser flow.
+
+```sh
+BW_MCP_TOOLS=createRegistration
 ```
 
 ## Using the Server
@@ -131,8 +143,8 @@ Then follow the prompts like the example below.
             "command":"uvx",
             "args": ["--from", "/path/to/mcp-server", "start"],
             "env": {
-                "BW_USERNAME": "<insert-bw-username>",
-                "BW_PASSWORD": "<insert-bw-password>",
+                "BW_CLIENT_ID": "<insert-bw-client-id>",
+                "BW_CLIENT_SECRET": "<insert-bw-client-secret>",
                 "BW_MCP_TOOLS": "tools,to,enable",
                 "BW_MCP_EXCLUDE_TOOLS": "tools,to,exclude",
             }
@@ -161,8 +173,8 @@ uvx --from /path/to/mcp-server start
             "command": "uvx",
             "args": ["--from", "/path/to/mcp-server", "start"],
             "env": {
-                "BW_USERNAME": "<insert-bw-username>",
-                "BW_PASSWORD": "<insert-bw-password>",
+                "BW_CLIENT_ID": "<insert-bw-client-id>",
+                "BW_CLIENT_SECRET": "<insert-bw-client-secret>",
                 "BW_MCP_TOOLS": "tools,to,enable",
                 "BW_MCP_EXCLUDE_TOOLS": "tools,to,exclude",
             }
@@ -186,8 +198,8 @@ uvx --from /path/to/mcp-server start
             "command": "uvx",
             "args": ["--from", "/path/to/mcp-server", "start"],
             "env": {
-                "BW_USERNAME": "<insert-bw-username>",
-                "BW_PASSWORD": "<insert-bw-password>",
+                "BW_CLIENT_ID": "<insert-bw-client-id>",
+                "BW_CLIENT_SECRET": "<insert-bw-client-secret>",
                 "BW_MCP_TOOLS": "tools,to,enable",
                 "BW_MCP_EXCLUDE_TOOLS": "tools,to,exclude",
             }
@@ -212,11 +224,11 @@ Once these are installed, create a virtual environment using:
 python -m venv .venv
 ```
 
-Then activate and install the required packaged from the `requirements.txt` file.
+Then activate and install the project with its dependencies.
 
 ```sh
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install .
 ```
 
 After all packages are installed in the virtual environment, you can run the server locally using:
@@ -234,68 +246,104 @@ then you can start the server by running the following command from the root dir
 uvx --from ./ start
 ```
 
+## Hosted Mode
+
+Run the server over HTTP to enable remote access and webhook callbacks:
+
+```bash
+BW_MCP_TRANSPORT=streamable-http \
+BW_MCP_PORT=8080 \
+BW_MCP_BASE_URL=https://your-server.example.com \
+BW_CLIENT_ID=your_client_id \
+BW_CLIENT_SECRET=your_client_secret \
+python src/app.py
+```
+
+### Local Callback Tunnel (dev only)
+
+Voice and messaging callbacks need Bandwidth to reach your server over a public
+URL. In production you set `BW_MCP_BASE_URL`. For local development, set
+`BW_MCP_DEV_TUNNEL=1` and the server will open an ephemeral
+[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+tunnel, use the resulting `*.trycloudflare.com` URL as `BW_MCP_BASE_URL`, and
+auto-wire your voice app's callbacks to it — no ngrok needed.
+
+```bash
+BW_MCP_TRANSPORT=streamable-http \
+BW_MCP_DEV_TUNNEL=1 \
+BW_CLIENT_ID=your_client_id \
+BW_CLIENT_SECRET=your_client_secret \
+python src/app.py
+```
+
+Requires `cloudflared` on your PATH (`brew install cloudflared` on macOS). If
+it's missing, the server logs a warning and starts without a tunnel. This is
+for **development and testing only** — production deployments should use a real
+host via `BW_MCP_BASE_URL`. The tunnel never starts unless `BW_MCP_DEV_TUNNEL`
+is set.
+
+### Tool Profiles
+
+Reduce context window pressure with named presets:
+
+```bash
+BW_MCP_PROFILE=messaging    # SMS/MMS tools only
+BW_MCP_PROFILE=voice        # Voice + BXML tools
+BW_MCP_PROFILE=onboarding   # Account creation
+BW_MCP_PROFILE=lookup       # Number intelligence
+BW_MCP_PROFILE=messaging,voice  # Combine profiles
+```
+
+Profiles set via `BW_MCP_PROFILE` env var or `--profile` CLI flag. Use `BW_MCP_TOOLS` to override with specific tool names.
+
 ## Tools List
 
-## **Multi-Factor Authentication (MFA)**
-- `generateMessagingCode` - Send MFA code via SMS
-- `generateVoiceCode` - Send MFA code via voice call
-- `verifyCode` - Verify a previously sent MFA code
+Tools are grouped into profiles that mirror the workflows you'd use the server for.
+Loading a single profile keeps your agent's context small. The full agent reference
+— including auth model, error codes, and the "trust nothing" guidance for async
+calls — lives in [`src/specs/AGENTS.md`](src/specs/AGENTS.md).
 
-## **Phone Number Lookup**
-- `createLookup` - Create a phone number lookup request
-- `getLookupStatus` - Get status of an existing lookup request
+The default tool set is `voice` + `messaging` + `lookup` (plus
+`setCredentials` / `clearCredentials`, always loaded). Override with
+`BW_MCP_PROFILE`, `BW_MCP_TOOLS`, or `BW_MCP_EXCLUDE_TOOLS`.
 
-## **Voice & Call Management**
-- `listCalls` - Returns a list of call events with filtering options
-- `listCall` - Returns details for a single call event
+### Session management (always loaded)
+- `setCredentials` — authenticate the session (stdio transport only)
+- `clearCredentials` — log out of the session
 
-## **Reporting & Analytics**
-- `getReports` - Get history of created reports
-- `createReport` - Create a new report instance
-- `getReportStatus` - Get status of a report
-- `getReportFile` - Download report file
-- `getReportDefinitions` - Get available report definitions
+### Profile: `onboarding` (no auth required)
+Kicks off a new Bandwidth Build account. Only one tool is exposed — SMS verification, password set, and API credential generation all happen in the user's browser. The agent hands off after the kickoff.
+- `createRegistration` — submit contact details; Bandwidth then SMSes an OTP and emails a password-set link
 
-## **Media Management**
-- `listMedia` - List your media files
-- `getMedia` - Download a specific media file
-- `uploadMedia` - Upload a media file
-- `deleteMedia` - Delete a media file
+### Profile: `voice`
+- `listApplications` / `createApplication` — find or create a voice app
+- `listPhoneNumbers` — find numbers on the account
+- `createCall` — place an outbound call
+- `getCallState` — read current call state (always poll after `createCall`)
+- `listCalls` — list call events with filtering
+- `updateCall` / `updateCallBxml` — redirect, hang up, or replace BXML
+- `generateBXML` — build valid BXML from a verb list
+- `respondToCallback` — queue a BXML response for an active callback (first-write-wins)
+- `getCallbackEvents` — read recent voice / messaging callback events
+- `configureCallbacks` — point an application's webhook URLs at this server
 
-## **Messaging**
-- `listMessages` - List messages with filtering options
-- `createMessage` - Send SMS/MMS messages
-- `createMultiChannelMessage` - Send multi-channel messages (RBM, SMS, MMS)
+### Profile: `messaging`
+- `createMessage` — send SMS / MMS
+- `listMessages` — query message history
+- `getInboundMessages` — read inbound messages captured by this server
+- `listMedia` / `getMedia` / `uploadMedia` / `deleteMedia` — manage MMS media
+- `configureCallbacks` — point an application's callbacks at this server
 
-## **Address Management**
-- `getAddressFields` - Get supported address fields by country
-- `validateAddress` - Validate an address and get excluded features
-- `listAddresses` - List all addresses
-- `createAddress` - Create an address
-- `getAddress` - Get an address by ID
-- `updateAddress` - Update an address
-- `listCityInfo` - List city info search results
+### Profile: `lookup`
+- `createSyncLookup` — one-shot lookup for a small input set
+- `createAsyncBulkLookup` — kick off a bulk lookup
+- `getAsyncBulkLookup` — poll a bulk lookup
 
-## **Compliance**
-- `listDocumentTypes` - List all accepted document types and metadata requirements
-- `listEndUserTypes` - List all End user types and accepted metadata
-- `listEndUserActivationRequirements` - List requirements for End user activation
-- `getComplianceDocumentMetadata` - Get metadata of uploaded documents
-- `updateComplianceDocument` - Modify document data and file
-- `downloadComplianceDocuments` - Download document using document ID
-- `createComplianceDocument` - Upload a document with metadata
-- `listComplianceEndUsers` - List all End users of an account
-- `createComplianceEndUser` - Create an End user
-- `getComplianceEndUser` - Retrieve an End User by ID
-- `updateComplianceEndUser` - Update End user details
+### Profile: `recordings`
+- `listCallRecordings` / `getCallRecording` — list / inspect recordings
+- `downloadCallRecording` — download the media
+- `deleteRecording` — remove a recording
+- `transcribeCallRecording` / `getRecordingTranscription` — request and read transcription
 
-## **Requirements Packages**
-- `listRequirementsPackages` - List all requirements packages
-- `createRequirementsPackage` - Create a requirements package
-- `getRequirementsPackage` - Retrieve a requirements package
-- `patchRequirementsPackage` - Update Requirements package
-- `getRequirementsPackageAssets` - Get assets attached to requirements package
-- `attachRequirementsPackageAsset` - Attach an asset to requirements package
-- `detachRequirementsPackageAsset` - Detach an asset from requirements package
-- `validateNumberActivation` - Validate number activation requirements
-- `getRequirementsPackageHistory` - Get history of a requirements package
+See [`src/specs/AGENTS.md`](src/specs/AGENTS.md) for argument-level guidance, polling
+patterns, and the structured error shape the server returns on failure.

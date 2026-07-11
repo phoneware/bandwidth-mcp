@@ -1,0 +1,7 @@
+.git
+test
+**/__pycache__
+*.pyc
+.venv
+common_use_cases.md
+DEPLOY.md

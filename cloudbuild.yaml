@@ -1,0 +1,63 @@
+# Cloud Build pipeline for the Phoneware-hosted Bandwidth MCP.
+#
+# Triggered by pushes to `main` (Cloud Build GitHub trigger in phoneware-edge).
+# Builds the image, pushes to Artifact Registry, deploys to Cloud Run.
+#
+# Prereqs (one-time, see DEPLOY.md):
+#   - Artifact Registry repo `bandwidth-mcp` in us-central1.
+#   - Secret Manager: bandwidth-client-id, bandwidth-client-secret, bandwidth-gateway-token.
+#   - The Cloud Run runtime SA can access those secrets (roles/secretmanager.secretAccessor).
+#
+# Security model: the service is public ingress (Bandwidth callbacks + the Claude
+# client must reach it) but /mcp is gated by BW_GATEWAY_TOKEN (see serve.py).
+steps:
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/bandwidth-mcp:$COMMIT_SHA
+      - -t
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/bandwidth-mcp:latest
+      - .
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    waitFor: ['build']
+    args: ['push', '--all-tags', '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/bandwidth-mcp']
+
+  - id: deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    waitFor: ['push']
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - bandwidth-mcp
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/bandwidth-mcp:$COMMIT_SHA
+      - --region=${_REGION}
+      - --platform=managed
+      - --port=8080
+      # Public ingress is required (Bandwidth callbacks + the Claude client reach
+      # it directly); /mcp is protected by BW_GATEWAY_TOKEN inside the app.
+      - --allow-unauthenticated
+      # In-memory event store + webhook callbacks -> keep one warm instance.
+      - --min-instances=1
+      - --max-instances=1
+      - --memory=512Mi
+      - --cpu=1
+      - --set-secrets=BW_CLIENT_ID=bandwidth-client-id:latest,BW_CLIENT_SECRET=bandwidth-client-secret:latest,BW_GATEWAY_TOKEN=bandwidth-gateway-token:latest
+      # BW_MCP_BASE_URL should be the service's public URL once known (needed for
+      # voice/messaging callbacks). BW_MCP_PROFILE trims the tool surface.
+      - --set-env-vars=BW_MCP_TRANSPORT=streamable-http,BW_MCP_HOST=0.0.0.0,BW_MCP_PORT=8080,BW_MCP_PROFILE=default
+
+substitutions:
+  _REGION: us-central1
+  _REPO: bandwidth-mcp
+
+images:
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/bandwidth-mcp:$COMMIT_SHA'
+  - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/bandwidth-mcp:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

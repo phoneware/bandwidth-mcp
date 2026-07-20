@@ -3,7 +3,7 @@ from pathlib import Path
 import specs
 
 from fastmcp import FastMCP
-from httpx import AsyncClient
+from httpx import AsyncClient, Auth
 from typing import Dict, List, Optional, Callable, Any
 
 from server_utils import (
@@ -69,9 +69,18 @@ async def _create_server(
     base_url = spec_object["servers"][0]["url"]
 
     headers = {"User-Agent": "Bandwidth MCP Server"}
-    token = config.get("BW_ACCESS_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+
+    class _LiveConfigTokenAuth(Auth):
+        """Attach the CURRENT BW_ACCESS_TOKEN from the shared config on every
+        request rather than baking it into the client headers at startup, so a
+        hosted gateway (serve.py) can mint/refresh the upstream token after
+        boot without a server restart."""
+
+        def auth_flow(self, request):
+            token = config.get("BW_ACCESS_TOKEN")
+            if token and "authorization" not in request.headers:
+                request.headers["Authorization"] = f"Bearer {token}"
+            yield request
 
     async def _ensure_content_type(request):
         """Workaround for FastMCP from_openapi: when the OpenAPI spec declares
@@ -95,6 +104,7 @@ async def _create_server(
     client = AsyncClient(
         base_url=base_url,
         headers=headers,
+        auth=_LiveConfigTokenAuth(),
         follow_redirects=True,
         event_hooks={"request": [_ensure_content_type]},
     )

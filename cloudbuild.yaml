@@ -46,7 +46,10 @@ steps:
       - --max-instances=1
       - --memory=512Mi
       - --cpu=1
-      - --set-secrets=BW_CLIENT_ID=bandwidth-client-id:latest,BW_CLIENT_SECRET=bandwidth-client-secret:latest,BW_GATEWAY_TOKEN=bandwidth-gateway-token:latest
+      # BW_GATEWAY_TOKEN is the HMAC signing key for OAuth codes/bearers.
+      # Bandwidth API creds are deliberately NOT mounted: they live in the
+      # client's connector config and only transit /token (see serve.py).
+      - --set-secrets=BW_GATEWAY_TOKEN=bandwidth-gateway-token:latest
       # BW_MCP_BASE_URL should be the service's public URL once known (needed for
       # voice/messaging callbacks). BW_MCP_PROFILE trims the tool surface.
       - --set-env-vars=BW_MCP_TRANSPORT=streamable-http,BW_MCP_HOST=0.0.0.0,BW_MCP_PORT=8080,BW_MCP_PROFILE=default

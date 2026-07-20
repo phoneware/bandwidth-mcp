@@ -45,7 +45,8 @@ companion MCP over `api.bandwidth.com/api/v2`.
 3. **Artifact Registry repo** `bandwidth-mcp` (us-central1), if not present.
 4. **Cloud Build GitHub trigger** on this repo's `main` -> `cloudbuild.yaml`
    (authorize the Cloud Build GitHub App on `phoneware/bandwidth-mcp` first).
-5. Grant the Cloud Run runtime SA `roles/secretmanager.secretAccessor` on the   three secrets.
+5. Grant the Cloud Run runtime SA `roles/secretmanager.secretAccessor` on the
+   signing-key secret.
 
 ## Deploy
 Push to `main` -> the Cloud Build trigger builds + deploys. After the first

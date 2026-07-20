@@ -11,8 +11,20 @@
 # Security model: the service is public ingress (Bandwidth callbacks + the Claude
 # client must reach it) but /mcp is gated by BW_GATEWAY_TOKEN (see serve.py).
 steps:
+  - id: test
+    name: python:3.12-slim
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        pip install --no-cache-dir "fastmcp~=3.2" "mcp~=1.24" "httpx~=0.28.0" \
+          "pyyaml~=6.0.0" "werkzeug>=3.1.4" uvicorn pytest pytest-asyncio pytest-httpx
+        python -m pytest -q
+
   - id: build
     name: gcr.io/cloud-builders/docker
+    waitFor: ['test']
     args:
       - build
       - -t
@@ -55,7 +67,12 @@ steps:
       # --set-env-vars REPLACES the service env wholesale: this list is the
       # complete pipeline-managed env. BW_MCP_BASE_URL is the OAuth issuer and
       # callback base — it must ride here or a deploy wipes it.
-      - --set-env-vars=BW_MCP_TRANSPORT=streamable-http,BW_MCP_HOST=0.0.0.0,BW_MCP_PORT=8080,BW_MCP_PROFILE=default,BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
+      # Tool surface is deployment-managed here: profiles pick the groups,
+      # BW_MCP_EXCLUDE_TOOLS prunes individual tools Phoneware doesn't use
+      # (enforced uniformly for OpenAPI-derived AND hand-written tools).
+      # ^@^ switches gcloud's env-var delimiter to @ so the comma lists pass
+      # through intact.
+      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_MCP_PROFILE=default,numbers@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
 
 substitutions:
   _REGION: us-central1

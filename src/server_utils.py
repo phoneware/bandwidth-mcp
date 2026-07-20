@@ -68,16 +68,14 @@ def create_route_map_fn(
     """
 
     def route_map_fn(route: HTTPRoute, mcp_type: MCPType) -> MCPType:
-        # Excluded tools have priority - if provided, ignore enabled tools
-        if excluded_tools:
-            return (
-                mcp_type
-                if route.operation_id not in excluded_tools
-                else MCPType.EXCLUDE
-            )
-        if enabled_tools:
-            return mcp_type if route.operation_id in enabled_tools else MCPType.EXCLUDE
-
+        # Excluded takes priority over enabled, but BOTH apply. (The original
+        # returned early when excluded_tools was set, which silently ignored
+        # the enabled list: profile + exclusions together loaded every tool
+        # the specs expose except the excluded ones.)
+        if excluded_tools and route.operation_id in excluded_tools:
+            return MCPType.EXCLUDE
+        if enabled_tools and route.operation_id not in enabled_tools:
+            return MCPType.EXCLUDE
         return mcp_type
 
     return route_map_fn

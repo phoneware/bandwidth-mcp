@@ -37,11 +37,19 @@ PROFILES: dict[str, list[str]] = {
         "transcribeCallRecording",
         "getRecordingTranscription",
     ],
-    # Numbers API tools are disabled — the API is XML-based and from_openapi
-    # sends JSON. These will be re-enabled when we have a proper adapter.
+    # Numbers/Dashboard API (XML) — hand-written read-only adapter in
+    # tools/numbers.py (from_openapi can't drive the XML API). Port-in (LNP)
+    # orders, available-number search, order history, sites.
+    "numbers": [
+        "listPortInOrders",
+        "getPortInOrder",
+        "getPortInNotes",
+        "searchAvailableNumbers",
+        "listNumberOrders",
+        "getNumberOrder",
+        "listSites",
+    ],
     # "applications": [...],
-    # "numbers": [...],
-    # "sites": [...],
     # "locations": [...],
     # bw account register (Build registration). Only the kickoff is exposed —
     # SMS and email verification happen in the user's browser, not via API.
@@ -68,7 +76,7 @@ PROFILES: dict[str, list[str]] = {
 }
 
 # Always included regardless of profile
-_ALWAYS_TOOLS = ["setCredentials", "clearCredentials"]
+_ALWAYS_TOOLS = ["setCredentials", "clearCredentials", "listAccounts"]
 
 # Default: voice + messaging + lookup
 DEFAULT_TOOLS = list(dict.fromkeys(

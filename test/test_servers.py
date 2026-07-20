@@ -99,9 +99,15 @@ async def test_individual_mcp_server_creation(
     assert (
         client.base_url == expected_base_url
     ), f"Expected base URL '{expected_base_url}', got '{client.base_url}'"
+    # Auth attaches per-request from the LIVE config (servers.py
+    # _LiveConfigTokenAuth), not as a baked default header — a hosted gateway
+    # can mint/refresh the token after boot without a restart.
+    assert "Authorization" not in client.headers
+    req = client.build_request("GET", "/probe")
+    req = next(client.auth.auth_flow(req))
     assert (
-        client.headers["Authorization"] == expected_auth_header
-    ), f"Expected auth header '{expected_auth_header}', got '{client.headers['Authorization']}'"
+        req.headers.get("Authorization") == expected_auth_header
+    ), f"Expected auth header '{expected_auth_header}', got '{req.headers.get('Authorization')}'"
 
 
 @pytest.mark.asyncio

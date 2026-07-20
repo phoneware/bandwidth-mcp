@@ -15,6 +15,7 @@ from tools.credentials import register_credentials_tools
 from tools.callbacks import register_callback_tools
 from tools.voice import register_voice_tools
 from tools.discovery import register_discovery_tools
+from tools.numbers import register_numbers_tools
 from instructions import build_instructions
 from event_store import EventStore
 from callbacks import register_callback_routes
@@ -59,6 +60,26 @@ async def lifespan(mcp_instance: FastMCP):
     register_callback_tools(mcp_instance, _event_store, _config)
     register_voice_tools(mcp_instance, _event_store, _config)
     register_discovery_tools(mcp_instance, _config)
+    register_numbers_tools(mcp_instance, _config)
+
+    # Uniform tool gating: the enabled/excluded config (BW_MCP_TOOLS /
+    # BW_MCP_PROFILE / BW_MCP_EXCLUDE_TOOLS) pre-filters OpenAPI-derived
+    # tools via the route map, but hand-written registrations above ignore
+    # it. Prune here so the deployment env controls EVERY tool.
+    excluded_set = set(excluded_tools or [])
+    enabled_set = None if enabled_tools is None else set(enabled_tools)
+    remover = getattr(
+        getattr(mcp_instance, "local_provider", None), "remove_tool", None
+    ) or mcp_instance.remove_tool
+    for tool in await mcp_instance.list_tools():
+        blocked = tool.name in excluded_set or (
+            enabled_set is not None and tool.name not in enabled_set
+        )
+        if blocked:
+            try:
+                remover(tool.name)
+            except Exception as e:
+                print(f"Warning: could not remove tool {tool.name}: {e}")
 
     # Auto-configure voice app callbacks to current tunnel/base URL
     base_url = _config.get("BW_MCP_BASE_URL")

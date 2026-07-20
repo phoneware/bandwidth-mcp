@@ -4,6 +4,7 @@ import specs
 
 from fastmcp import FastMCP
 from httpx import AsyncClient, Auth
+from mcp.types import ToolAnnotations
 from typing import Dict, List, Optional, Callable, Any
 
 from server_utils import (
@@ -109,11 +110,26 @@ async def _create_server(
         event_hooks={"request": [_ensure_content_type]},
     )
 
+    def _annotate_component(route, component):
+        """Give every OpenAPI-derived tool MCP annotations from its HTTP
+        method so clients can group read vs write tools (claude.ai buckets
+        unannotated tools under "Other")."""
+        if not hasattr(component, "annotations"):
+            return
+        method = (getattr(route, "method", "") or "").upper()
+        component.annotations = ToolAnnotations(
+            readOnlyHint=method in ("GET", "HEAD"),
+            destructiveHint=method == "DELETE",
+            idempotentHint=method in ("GET", "HEAD", "PUT", "DELETE"),
+            openWorldHint=False,
+        )
+
     mcp = FastMCP.from_openapi(
         openapi_spec=spec_object,
         client=client,
         name="Bandwidth",
         route_map_fn=route_map_fn,
+        mcp_component_fn=_annotate_component,
     )
 
     return mcp

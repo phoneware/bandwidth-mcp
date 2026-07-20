@@ -19,6 +19,14 @@ _AUTH_KEYS = [
 ]
 
 
+from mcp.types import ToolAnnotations
+
+# Client-facing read/write hints so MCP clients (claude.ai) can group tools
+# instead of dumping everything under "Other".
+_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+
+
 async def set_credentials_flow(
     config: dict,
     client_id: str,
@@ -80,7 +88,7 @@ def register_credentials_tools(
     transport = os.environ.get("BW_MCP_TRANSPORT", "stdio")
 
     if transport == "stdio":
-        @mcp.tool(name="setCredentials")
+        @mcp.tool(name="setCredentials", annotations=_WRITE)
         async def set_credentials(
             client_id: str,
             client_secret: str,
@@ -103,7 +111,7 @@ def register_credentials_tools(
                 client_secret=client_secret,
             )
 
-    @mcp.tool(name="clearCredentials")
+    @mcp.tool(name="clearCredentials", annotations=_WRITE)
     async def clear_credentials() -> dict:
         """Log out of Bandwidth by clearing stored credentials.
 

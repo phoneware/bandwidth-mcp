@@ -6,6 +6,14 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from event_store import EventStore
 
 
+from mcp.types import ToolAnnotations
+
+# Client-facing read/write hints so MCP clients (claude.ai) can group tools
+# instead of dumping everything under "Other".
+_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+
+
 def _snake_to_camel(name: str) -> str:
     parts = name.split("_")
     return parts[0] + "".join(p.capitalize() for p in parts[1:])
@@ -140,7 +148,7 @@ async def respond_to_callback_flow(
 
 
 def register_voice_tools(mcp, event_store: EventStore, config: dict = None) -> None:
-    @mcp.tool(name="generateBXML")
+    @mcp.tool(name="generateBXML", annotations=_READ)
     async def generate_bxml(
         verbs: list[dict[str, Any]],
         auto_gather: bool = True,
@@ -163,7 +171,7 @@ def register_voice_tools(mcp, event_store: EventStore, config: dict = None) -> N
         gather_url = f"{base_url}/callbacks/voice/gather" if base_url else ""
         return await generate_bxml_flow(verbs, auto_gather, gather_url)
 
-    @mcp.tool(name="respondToCallback")
+    @mcp.tool(name="respondToCallback", annotations=_WRITE)
     async def respond_to_callback(call_id: str, bxml: str) -> dict:
         """Queue a BXML response for an active voice call.
 

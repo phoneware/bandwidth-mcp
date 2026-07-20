@@ -12,6 +12,14 @@ import httpx
 from urls import dashboard_api_base
 
 
+from mcp.types import ToolAnnotations
+
+# Client-facing read/write hints so MCP clients (claude.ai) can group tools
+# instead of dumping everything under "Other".
+_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+
+
 def _resolve_account(config: dict, account_id: str = "") -> str:
     """Resolve which account a call targets.
 
@@ -208,7 +216,7 @@ async def create_application_flow(
 def register_discovery_tools(mcp, config: dict) -> None:
     """Register account discovery tools on the MCP server."""
 
-    @mcp.tool(name="listAccounts")
+    @mcp.tool(name="listAccounts", annotations=_READ)
     async def list_accounts() -> dict:
         """List every Bandwidth account enabled on the authenticated client ID.
 
@@ -225,7 +233,7 @@ def register_discovery_tools(mcp, config: dict) -> None:
             "count": len(accounts),
         }
 
-    @mcp.tool(name="listApplications")
+    @mcp.tool(name="listApplications", annotations=_READ)
     async def list_applications(account_id: str = "") -> dict:
         """List all voice and messaging applications on your Bandwidth account.
 
@@ -238,7 +246,7 @@ def register_discovery_tools(mcp, config: dict) -> None:
         """
         return await list_applications_flow(config, account_id)
 
-    @mcp.tool(name="listPhoneNumbers")
+    @mcp.tool(name="listPhoneNumbers", annotations=_READ)
     async def list_phone_numbers(
         size: int = 100, status: str = "Inservice", account_id: str = ""
     ) -> dict:
@@ -255,7 +263,7 @@ def register_discovery_tools(mcp, config: dict) -> None:
         """
         return await list_phone_numbers_flow(config, size, status, account_id)
 
-    @mcp.tool(name="createApplication")
+    @mcp.tool(name="createApplication", annotations=_WRITE)
     async def create_application(
         name: str,
         service_type: str = "Voice-V2",

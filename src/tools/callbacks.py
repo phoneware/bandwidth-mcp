@@ -8,6 +8,14 @@ from event_store import EventStore
 from urls import dashboard_api_base
 
 
+from mcp.types import ToolAnnotations
+
+# Client-facing read/write hints so MCP clients (claude.ai) can group tools
+# instead of dumping everything under "Other".
+_READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+
+
 async def get_inbound_messages_flow(
     event_store: EventStore,
     phone_number: Optional[str] = None,
@@ -156,7 +164,7 @@ async def configure_callbacks_flow(
 
 
 def register_callback_tools(mcp, event_store: EventStore, config: dict = None) -> None:
-    @mcp.tool(name="getInboundMessages")
+    @mcp.tool(name="getInboundMessages", annotations=_READ)
     async def get_inbound_messages(
         phone_number: Optional[str] = None,
         since: Optional[float] = None,
@@ -169,7 +177,7 @@ def register_callback_tools(mcp, event_store: EventStore, config: dict = None) -
         """
         return await get_inbound_messages_flow(event_store, phone_number, since)
 
-    @mcp.tool(name="getCallbackEvents")
+    @mcp.tool(name="getCallbackEvents", annotations=_READ)
     async def get_callback_events(
         event_type: Optional[str] = None,
         call_id: Optional[str] = None,
@@ -193,7 +201,7 @@ def register_callback_tools(mcp, event_store: EventStore, config: dict = None) -
 
     if config is not None:
 
-        @mcp.tool(name="configureCallbacks")
+        @mcp.tool(name="configureCallbacks", annotations=_WRITE)
         async def configure_callbacks(
             application_id: str,
             base_url: str,

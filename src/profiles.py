@@ -44,10 +44,17 @@ PROFILES: dict[str, list[str]] = {
         "listPortInOrders",
         "getPortInOrder",
         "getPortInNotes",
+        "listPortOutOrders",
+        "getPortOutOrder",
         "searchAvailableNumbers",
         "listNumberOrders",
         "getNumberOrder",
         "listSites",
+        "listSipPeers",
+        "getPhoneNumberDetail",
+        # Grid inventory listing lives in discovery (voice profile) too;
+        # include it here so numbers-only deployments can see inventory.
+        "listPhoneNumbers",
     ],
     # "applications": [...],
     # "locations": [...],

@@ -72,7 +72,9 @@ steps:
       # (enforced uniformly for OpenAPI-derived AND hand-written tools).
       # ^@^ switches gcloud's env-var delimiter to @ so the comma lists pass
       # through intact.
-      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_MCP_PROFILE=default,numbers@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
+      # Messaging is deliberately absent: Phoneware texts via Clerk/NS, not
+      # Bandwidth directly (no createMessage/listMessages/media/inbound).
+      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_MCP_PROFILE=voice,lookup,numbers@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
 
 substitutions:
   _REGION: us-central1

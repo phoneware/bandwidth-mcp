@@ -13,7 +13,7 @@ You have access to Bandwidth's communication APIs as MCP tools. Everything you n
 ## Quick Start
 - Read resource://config to see what's configured (credentials, account ID, application IDs, phone numbers).
 - A client ID can have MULTIPLE accounts enabled: call listAccounts to see them. API tools take accountId per call; discovery tools (listApplications, listPhoneNumbers) accept an optional account_id. When omitted, the primary account is used.
-- Porting and numbers: listPortInOrders (pass status="pending" for open LNP orders), getPortInOrder, getPortInNotes, searchAvailableNumbers, listNumberOrders, getNumberOrder, listSites. These are read-only; number ordering and port submission stay in the Bandwidth Dashboard.
+- Porting and numbers: listPortInOrders (pass status="pending" for open LNP orders), getPortInOrder, getPortInNotes, listPortOutOrders (numbers leaving the account), getPortOutOrder, searchAvailableNumbers, listNumberOrders, getNumberOrder, listSites, listSipPeers, getPhoneNumberDetail (site/SIP peer/features for one TN). These are read-only; number ordering and port submission stay in the Bandwidth Dashboard.
 - Phone numbers must be in E.164 format (e.g. +19195551234).
 - Application IDs are UUIDs.
 - All tools are listed in your tool list. If you need to discover account resources (applications, phone numbers), use the API tools directly — they're already registered."""

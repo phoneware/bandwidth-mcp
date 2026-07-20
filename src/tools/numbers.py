@@ -60,6 +60,25 @@ async def _dashboard_json(config: dict, path: str, account_id: str = "") -> dict
     return {root.tag: _xml_to_data(root)}
 
 
+async def _dashboard_json_abs(config: dict, path: str) -> dict:
+    """Dashboard GET for paths NOT under /accounts/{id}/ (e.g. /tns/...)."""
+    import httpx
+
+    from urls import dashboard_api_base
+
+    token = config.get("BW_ACCESS_TOKEN")
+    if not token:
+        raise RuntimeError("Not authenticated.")
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.get(
+            f"{dashboard_api_base()}/{path}",
+            headers={"Authorization": f"Bearer {token}", "Accept": "application/xml"},
+        )
+        resp.raise_for_status()
+    root = fromstring(resp.text)
+    return {root.tag: _xml_to_data(root)}
+
+
 def register_numbers_tools(mcp, config: dict) -> None:
     """Register read-only Numbers/Dashboard API tools."""
 
@@ -158,3 +177,49 @@ def register_numbers_tools(mcp, config: dict) -> None:
             account_id: Optional account to query (see listAccounts).
         """
         return await _dashboard_json(config, "sites", account_id)
+
+    @mcp.tool(name="listSipPeers", annotations=_READ)
+    async def list_sip_peers(site_id: str, account_id: str = "") -> dict:
+        """List SIP peers (locations) on a site: where its numbers route.
+
+        Args:
+            site_id: The site id (from listSites).
+            account_id: Optional account to query (see listAccounts).
+        """
+        return await _dashboard_json(config, f"sites/{site_id}/sippeers", account_id)
+
+    @mcp.tool(name="getPhoneNumberDetail", annotations=_READ)
+    async def get_phone_number_detail(number: str) -> dict:
+        """Full detail for one phone number: account, site, SIP peer, status,
+        and provisioned features (e911, messaging, CNAM).
+
+        Args:
+            number: The telephone number, 10 digits (no +1).
+        """
+        tn = "".join(ch for ch in number if ch.isdigit())
+        if len(tn) == 11 and tn.startswith("1"):
+            tn = tn[1:]
+        return await _dashboard_json_abs(config, f"tns/{tn}/tndetails")
+
+    @mcp.tool(name="listPortOutOrders", annotations=_READ)
+    async def list_port_out_orders(status: str = "", account_id: str = "") -> dict:
+        """List port-OUT orders: numbers being ported AWAY from the account.
+
+        Args:
+            status: Optional comma-separated Bandwidth LNP statuses to filter
+                by. Empty returns all port-out orders.
+            account_id: Optional account to query (see listAccounts).
+        """
+        s = status.strip().lower()
+        path = "portouts" + (f"?status={s}" if s else "")
+        return await _dashboard_json(config, path, account_id)
+
+    @mcp.tool(name="getPortOutOrder", annotations=_READ)
+    async def get_port_out_order(order_id: str, account_id: str = "") -> dict:
+        """Get one port-out order: status, numbers, and winning carrier info.
+
+        Args:
+            order_id: The port-out order id (from listPortOutOrders).
+            account_id: Optional account to query (see listAccounts).
+        """
+        return await _dashboard_json(config, f"portouts/{order_id}", account_id)

@@ -123,6 +123,7 @@ async def _mint_upstream(client_id: str, client_secret: str) -> None:
     token_data = await get_oauth_token(client_id, client_secret)
     _config["BW_ACCESS_TOKEN"] = token_data["access_token"]
     accounts = token_data.get("accounts") or []
+    _config["BW_ACCOUNTS"] = accounts
     if accounts and not os.environ.get("BW_ACCOUNT_ID"):
         _config["BW_ACCOUNT_ID"] = accounts[0]
     try:

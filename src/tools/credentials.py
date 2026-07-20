@@ -38,6 +38,7 @@ async def set_credentials_flow(
     config["BW_ACCESS_TOKEN"] = token_data["access_token"]
 
     accounts = token_data["accounts"]
+    config["BW_ACCOUNTS"] = accounts
     if accounts:
         config["BW_ACCOUNT_ID"] = accounts[0]
 

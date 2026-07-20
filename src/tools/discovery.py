@@ -12,14 +12,33 @@ import httpx
 from urls import dashboard_api_base
 
 
-async def _dashboard_get(config: dict, path: str) -> str:
+def _resolve_account(config: dict, account_id: str = "") -> str:
+    """Resolve which account a call targets.
+
+    Defaults to the primary account (BW_ACCOUNT_ID). An explicit account_id
+    must be one enabled on the authenticated client — the OAuth token's
+    `accounts` claim, kept in config as BW_ACCOUNTS — so a typo can't silently
+    query someone else's account id."""
+    accounts = config.get("BW_ACCOUNTS") or []
+    if account_id:
+        if accounts and account_id not in accounts:
+            raise RuntimeError(
+                f"Account {account_id} is not enabled on these credentials. "
+                f"Enabled accounts: {', '.join(accounts)}"
+            )
+        return account_id
+    resolved = config.get("BW_ACCOUNT_ID")
+    if not resolved:
+        raise RuntimeError("No account ID. Authentication may have failed.")
+    return resolved
+
+
+async def _dashboard_get(config: dict, path: str, account_id: str = "") -> str:
     """Make an authenticated GET to the Bandwidth Dashboard API."""
     token = config.get("BW_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("Not authenticated. Set BW_CLIENT_ID and BW_CLIENT_SECRET.")
-    account_id = config.get("BW_ACCOUNT_ID")
-    if not account_id:
-        raise RuntimeError("No account ID. Authentication may have failed.")
+    account_id = _resolve_account(config, account_id)
 
     url = f"{dashboard_api_base()}/accounts/{account_id}/{path}"
     async with httpx.AsyncClient(follow_redirects=True) as client:
@@ -37,9 +56,9 @@ def _xml_text(el, tag, default=""):
     return child.text if child is not None and child.text else default
 
 
-async def list_applications_flow(config: dict) -> dict:
+async def list_applications_flow(config: dict, account_id: str = "") -> dict:
     """List voice and messaging applications on the account."""
-    xml = await _dashboard_get(config, "applications")
+    xml = await _dashboard_get(config, "applications", account_id)
     root = fromstring(xml)
 
     apps = []
@@ -59,6 +78,7 @@ async def list_phone_numbers_flow(
     config: dict,
     size: int = 100,
     status: str = "Inservice",
+    account_id: str = "",
 ) -> dict:
     """List phone numbers on the account.
 
@@ -72,9 +92,7 @@ async def list_phone_numbers_flow(
     Different creds get one, both, or neither. Try `/tns` first to match the
     CLI; if it 403s, fall back to `inserviceNumbers` before reporting failure.
     """
-    account_id = config.get("BW_ACCOUNT_ID")
-    if not account_id:
-        raise RuntimeError("No account ID. Authentication may have failed.")
+    account_id = _resolve_account(config, account_id)
     token = config.get("BW_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("Not authenticated. Set BW_CLIENT_ID and BW_CLIENT_SECRET.")
@@ -133,11 +151,12 @@ async def create_application_flow(
     name: str,
     service_type: str = "Voice-V2",
     callback_url: str = "",
+    account_id: str = "",
 ) -> dict:
     """Create a new Bandwidth application."""
     token = config.get("BW_ACCESS_TOKEN")
-    account_id = config.get("BW_ACCOUNT_ID")
-    if not token or not account_id:
+    account_id = _resolve_account(config, account_id)
+    if not token:
         raise RuntimeError("Not authenticated.")
 
     # Use the server's base URL for callbacks if available
@@ -189,17 +208,40 @@ async def create_application_flow(
 def register_discovery_tools(mcp, config: dict) -> None:
     """Register account discovery tools on the MCP server."""
 
+    @mcp.tool(name="listAccounts")
+    async def list_accounts() -> dict:
+        """List every Bandwidth account enabled on the authenticated client ID.
+
+        A single client ID can have multiple accounts. Tools that take an
+        accountId (or account_id) accept any of these; when omitted they use
+        the default (primary) account.
+        """
+        accounts = config.get("BW_ACCOUNTS") or (
+            [config["BW_ACCOUNT_ID"]] if config.get("BW_ACCOUNT_ID") else []
+        )
+        return {
+            "accounts": accounts,
+            "default": config.get("BW_ACCOUNT_ID"),
+            "count": len(accounts),
+        }
+
     @mcp.tool(name="listApplications")
-    async def list_applications() -> dict:
+    async def list_applications(account_id: str = "") -> dict:
         """List all voice and messaging applications on your Bandwidth account.
 
         Returns application IDs, names, service types, and callback URLs.
         Use this to find your voice application ID for createCall.
+
+        Args:
+            account_id: Optional account to query (see listAccounts).
+                Defaults to the primary account.
         """
-        return await list_applications_flow(config)
+        return await list_applications_flow(config, account_id)
 
     @mcp.tool(name="listPhoneNumbers")
-    async def list_phone_numbers(size: int = 100, status: str = "Inservice") -> dict:
+    async def list_phone_numbers(
+        size: int = 100, status: str = "Inservice", account_id: str = ""
+    ) -> dict:
         """List phone numbers on your Bandwidth account.
 
         Returns phone numbers in E.164 format. Use this to find a 'from'
@@ -208,13 +250,16 @@ def register_discovery_tools(mcp, config: dict) -> None:
         Args:
             size: Maximum numbers to return (default 100).
             status: Comma-separated statuses (Inservice, InAccount, Aging).
+            account_id: Optional account to query (see listAccounts).
+                Defaults to the primary account.
         """
-        return await list_phone_numbers_flow(config, size, status)
+        return await list_phone_numbers_flow(config, size, status, account_id)
 
     @mcp.tool(name="createApplication")
     async def create_application(
         name: str,
         service_type: str = "Voice-V2",
+        account_id: str = "",
     ) -> dict:
         """Create a new Bandwidth application (voice or messaging).
 
@@ -224,5 +269,7 @@ def register_discovery_tools(mcp, config: dict) -> None:
         Args:
             name: A name for the application.
             service_type: "Voice-V2" (default) or "Messaging-V2".
+            account_id: Optional account to create it on (see listAccounts).
+                Defaults to the primary account.
         """
-        return await create_application_flow(config, name, service_type)
+        return await create_application_flow(config, name, service_type, "", account_id)

@@ -49,8 +49,12 @@ Optionally map DNS `mcp.bandwidth.phoneware.cloud` (add a CNAME in the monorepo
 `godaddy.tf`, mirroring `mcp.peplink`).
 
 ## Connect (the owner handles the client side)
-Point the Claude MCP client at `https://<url>/mcp` (streamable-http) with header
-`Authorization: Bearer <bandwidth-gateway-token>`.
+Two presentations of the same gateway token; rotate them together:
+- **Header-capable clients** (Claude Code, the API MCP connector): point at
+  `https://<url>/mcp` with header `Authorization: Bearer <bandwidth-gateway-token>`.
+- **claude.ai custom connectors** (no custom-header support): point at
+  `https://<url>/t/<bandwidth-gateway-token>/mcp` (no trailing slash). The
+  serve.py gate constant-time-checks the path segment and rewrites to `/mcp`.
 
 ## Verify
 - Unauthenticated `GET/POST /mcp` -> `401 Unauthorized`.

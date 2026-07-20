@@ -58,11 +58,37 @@ except TypeError:
     _inner = mcp.http_app()
 
 
+# claude.ai custom connectors cannot send custom headers, so the bearer can
+# also ride in the URL: /t/<token>/mcp rewrites to /mcp after a constant-time
+# token check. Same secret, second presentation; rotate them together.
+_PATH_PREFIX = "/t/"
+
+
 async def app(scope, receive, send):
     """ASGI middleware: gate the MCP endpoint, pass everything else through
     (including the lifespan scope, so the FastMCP lifespan still runs)."""
     if scope.get("type") == "http":
         path = scope.get("path", "") or ""
+        if path.startswith(_PATH_PREFIX):
+            seg, _, tail = path[len(_PATH_PREFIX):].partition("/")
+            inner_path = "/" + tail
+            if hmac.compare_digest(seg, _TOKEN) and any(
+                inner_path.startswith(p) for p in _PROTECTED
+            ):
+                scope = dict(scope)
+                scope["path"] = inner_path
+                scope["raw_path"] = inner_path.encode("latin1")
+                await _inner(scope, receive, send)
+                return
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 401,
+                    "headers": [(b"content-type", b"text/plain; charset=utf-8")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"Unauthorized"})
+            return
         if any(path.startswith(p) for p in _PROTECTED) and not _authorized(scope.get("headers")):
             await send(
                 {

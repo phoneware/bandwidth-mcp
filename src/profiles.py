@@ -52,9 +52,27 @@ PROFILES: dict[str, list[str]] = {
         "listSites",
         "listSipPeers",
         "getPhoneNumberDetail",
+        "checkPortability",
         # Grid inventory listing lives in discovery (voice profile) too;
         # include it here so numbers-only deployments can see inventory.
         "listPhoneNumbers",
+    ],
+    # Carrier WRITES: buy, remove, and port real service. Deployed only
+    # where the operator explicitly opts in.
+    "numbers-write": [
+        "orderPhoneNumbers",
+        "disconnectPhoneNumbers",
+        "createPortInOrder",
+        "supplementPortInOrder",
+        "cancelPortInOrder",
+    ],
+    # Usage/billing reports via the async /reports engine.
+    "billing": [
+        "listReports",
+        "listReportInstances",
+        "createReportInstance",
+        "getReportInstance",
+        "downloadReportFile",
     ],
     # "applications": [...],
     # "locations": [...],

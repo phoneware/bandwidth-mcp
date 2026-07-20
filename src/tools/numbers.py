@@ -12,13 +12,17 @@ All tools are read-only. Number ordering/porting WRITES are deliberately not
 exposed; carrier mutations stay in the Bandwidth Dashboard.
 """
 
-from xml.etree.ElementTree import fromstring
+from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 
+import httpx
 from mcp.types import ToolAnnotations
 
-from tools.discovery import _dashboard_get
+from tools.discovery import _dashboard_get, _resolve_account
+from urls import dashboard_api_base
 
 _READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
+_WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
+_DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
 
 # Bandwidth LNP processing statuses, for reference in tool docs:
 # DRAFT, SUBMITTED, PENDING_DOCUMENTS, EXCEPTION, REQUESTED_SUPP, FOC,
@@ -62,10 +66,6 @@ async def _dashboard_json(config: dict, path: str, account_id: str = "") -> dict
 
 async def _dashboard_json_abs(config: dict, path: str) -> dict:
     """Dashboard GET for paths NOT under /accounts/{id}/ (e.g. /tns/...)."""
-    import httpx
-
-    from urls import dashboard_api_base
-
     token = config.get("BW_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("Not authenticated.")
@@ -77,6 +77,58 @@ async def _dashboard_json_abs(config: dict, path: str) -> dict:
         resp.raise_for_status()
     root = fromstring(resp.text)
     return {root.tag: _xml_to_data(root)}
+
+
+async def _dashboard_send(
+    config: dict, method: str, path: str, body: Element | None, account_id: str = ""
+) -> dict:
+    """Authenticated write (POST/PUT/DELETE) to /accounts/{id}/{path}.
+
+    Body is built with ElementTree (never string interpolation) so user
+    values can't inject XML. Returns parsed response plus the Location
+    header's trailing id when Bandwidth returns one (order creates do)."""
+    token = config.get("BW_ACCESS_TOKEN")
+    if not token:
+        raise RuntimeError("Not authenticated.")
+    account = _resolve_account(config, account_id)
+    url = f"{dashboard_api_base()}/accounts/{account}/{path}"
+    content = tostring(body, encoding="unicode") if body is not None else None
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.request(
+            method,
+            url,
+            content=content,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/xml",
+                "Accept": "application/xml",
+            },
+        )
+    if resp.status_code >= 400:
+        raise RuntimeError(
+            f"Bandwidth rejected the request ({resp.status_code}): {resp.text[:2000]}"
+        )
+    out: dict = {"httpStatus": resp.status_code}
+    location = resp.headers.get("location", "")
+    if location:
+        out["id"] = location.rstrip("/").rsplit("/", 1)[-1]
+        out["location"] = location
+    if resp.text.strip():
+        try:
+            root = fromstring(resp.text)
+            out[root.tag] = _xml_to_data(root)
+        except Exception:
+            out["raw"] = resp.text[:4000]
+    return out
+
+
+def _tn_list(parent: Element, wrapper: str, tag: str, numbers: list) -> None:
+    lst = SubElement(parent, wrapper)
+    for n in numbers:
+        digits = "".join(ch for ch in str(n) if ch.isdigit())
+        if len(digits) == 11 and digits.startswith("1"):
+            digits = digits[1:]
+        SubElement(lst, tag).text = digits
 
 
 def register_numbers_tools(mcp, config: dict) -> None:
@@ -223,3 +275,193 @@ def register_numbers_tools(mcp, config: dict) -> None:
             account_id: Optional account to query (see listAccounts).
         """
         return await _dashboard_json(config, f"portouts/{order_id}", account_id)
+
+    @mcp.tool(name="checkPortability", annotations=_READ)
+    async def check_portability(numbers: list[str], account_id: str = "") -> dict:
+        """Check whether numbers CAN port to Bandwidth, and whether they can
+        port together on one order. Run this before createPortInOrder.
+
+        Args:
+            numbers: Telephone numbers to check (10-digit).
+            account_id: Optional account (see listAccounts).
+        """
+        body = Element("NumberPortabilityRequest")
+        _tn_list(body, "TnList", "Tn", numbers)
+        return await _dashboard_send(
+            config, "POST", "lnpchecker?fullCheck=true", body, account_id
+        )
+
+    # ── carrier writes (numbers-write profile) ──────────────────────────────
+    # These are LIVE carrier operations: they buy, remove, and port real
+    # service. Confirm intent with the user before calling any of them.
+
+    @mcp.tool(name="orderPhoneNumbers", annotations=_WRITE)
+    async def order_phone_numbers(
+        numbers: list[str],
+        site_id: str,
+        peer_id: str = "",
+        order_name: str = "",
+        account_id: str = "",
+    ) -> dict:
+        """ORDER (purchase) specific phone numbers onto the account. This is a
+        billable carrier action. Find candidates with searchAvailableNumbers
+        first, and confirm the exact numbers with the user before ordering.
+
+        Args:
+            numbers: The exact numbers to order (from searchAvailableNumbers).
+            site_id: Site (sub-account) to place them on (see listSites).
+            peer_id: Optional SIP peer/location (see listSipPeers).
+            order_name: Optional label for the order.
+            account_id: Optional account (see listAccounts).
+        """
+        body = Element("Order")
+        if order_name:
+            SubElement(body, "Name").text = order_name
+        SubElement(body, "SiteId").text = site_id
+        if peer_id:
+            SubElement(body, "PeerId").text = peer_id
+        existing = SubElement(body, "ExistingTelephoneNumberOrderType")
+        _tn_list(existing, "TelephoneNumberList", "TelephoneNumber", numbers)
+        return await _dashboard_send(config, "POST", "orders", body, account_id)
+
+    @mcp.tool(name="disconnectPhoneNumbers", annotations=_DESTRUCTIVE)
+    async def disconnect_phone_numbers(
+        numbers: list[str], order_name: str, account_id: str = ""
+    ) -> dict:
+        """DISCONNECT phone numbers: removes them from service. Destructive
+        and hard to undo (disconnected numbers age out of the account).
+        Confirm the exact numbers with the user before calling.
+
+        Args:
+            numbers: The exact numbers to disconnect.
+            order_name: A label for the disconnect order (required, shows in
+                the Dashboard audit trail).
+            account_id: Optional account (see listAccounts).
+        """
+        body = Element("DisconnectTelephoneNumberOrder")
+        SubElement(body, "Name").text = order_name
+        dt = SubElement(body, "DisconnectTelephoneNumberOrderType")
+        _tn_list(dt, "TelephoneNumberList", "TelephoneNumber", numbers)
+        return await _dashboard_send(config, "POST", "disconnects", body, account_id)
+
+    @mcp.tool(name="createPortInOrder", annotations=_WRITE)
+    async def create_port_in_order(
+        billing_telephone_number: str,
+        numbers: list[str],
+        site_id: str,
+        loa_authorizing_person: str,
+        business_name: str = "",
+        first_name: str = "",
+        last_name: str = "",
+        house_number: str = "",
+        street_name: str = "",
+        city: str = "",
+        state_code: str = "",
+        zip_code: str = "",
+        requested_foc_date: str = "",
+        peer_id: str = "",
+        losing_carrier_account_number: str = "",
+        pin: str = "",
+        account_id: str = "",
+    ) -> dict:
+        """CREATE a port-in (LNP) order to bring numbers TO Bandwidth. A
+        legally-binding carrier action against the losing carrier's account;
+        run checkPortability first and confirm all details with the user.
+        The signed LOA still needs uploading in the Bandwidth Dashboard
+        before the order completes.
+
+        Args:
+            billing_telephone_number: The BTN on the losing carrier account.
+            numbers: The numbers to port.
+            site_id: Destination site (see listSites).
+            loa_authorizing_person: Name of the person who signed the LOA.
+            business_name: Business subscriber name (or use first/last name
+                for residential).
+            first_name: Residential subscriber first name.
+            last_name: Residential subscriber last name.
+            house_number: Service address house number.
+            street_name: Service address street.
+            city: Service address city.
+            state_code: Service address two-letter state.
+            zip_code: Service address ZIP.
+            requested_foc_date: Optional requested port date (YYYY-MM-DD).
+            peer_id: Optional destination SIP peer (see listSipPeers).
+            losing_carrier_account_number: Account number with losing carrier.
+            pin: PIN/passcode with the losing carrier, if any.
+            account_id: Optional account (see listAccounts).
+        """
+        body = Element("LnpOrder")
+        if requested_foc_date:
+            SubElement(body, "RequestedFocDate").text = requested_foc_date
+        btn = "".join(ch for ch in billing_telephone_number if ch.isdigit())
+        if len(btn) == 11 and btn.startswith("1"):
+            btn = btn[1:]
+        SubElement(body, "BillingTelephoneNumber").text = btn
+        subscriber = SubElement(body, "Subscriber")
+        if business_name:
+            SubElement(subscriber, "SubscriberType").text = "BUSINESS"
+            SubElement(subscriber, "BusinessName").text = business_name
+        else:
+            SubElement(subscriber, "SubscriberType").text = "RESIDENTIAL"
+            SubElement(subscriber, "FirstName").text = first_name
+            SubElement(subscriber, "LastName").text = last_name
+        addr = SubElement(subscriber, "ServiceAddress")
+        SubElement(addr, "HouseNumber").text = house_number
+        SubElement(addr, "StreetName").text = street_name
+        SubElement(addr, "City").text = city
+        SubElement(addr, "StateCode").text = state_code
+        SubElement(addr, "Zip").text = zip_code
+        SubElement(body, "LoaAuthorizingPerson").text = loa_authorizing_person
+        _tn_list(body, "ListOfPhoneNumbers", "PhoneNumber", numbers)
+        if losing_carrier_account_number:
+            SubElement(body, "AccountNumber").text = losing_carrier_account_number
+        if pin:
+            SubElement(body, "PinNumber").text = pin
+        SubElement(body, "SiteId").text = site_id
+        if peer_id:
+            SubElement(body, "PeerId").text = peer_id
+        return await _dashboard_send(config, "POST", "portins", body, account_id)
+
+    @mcp.tool(name="supplementPortInOrder", annotations=_WRITE)
+    async def supplement_port_in_order(
+        order_id: str,
+        requested_foc_date: str = "",
+        site_id: str = "",
+        loa_authorizing_person: str = "",
+        account_id: str = "",
+    ) -> dict:
+        """SUPP (modify) an existing port-in order: change the FOC date or
+        correct details. Only pass the fields being changed.
+
+        Args:
+            order_id: The LNP order id (from listPortInOrders).
+            requested_foc_date: New requested port date (YYYY-MM-DD).
+            site_id: Corrected destination site.
+            loa_authorizing_person: Corrected LOA signer name.
+            account_id: Optional account (see listAccounts).
+        """
+        body = Element("LnpOrderSupp")
+        if requested_foc_date:
+            SubElement(body, "RequestedFocDate").text = requested_foc_date
+        if site_id:
+            SubElement(body, "SiteId").text = site_id
+        if loa_authorizing_person:
+            SubElement(body, "LoaAuthorizingPerson").text = loa_authorizing_person
+        if len(body) == 0:
+            raise RuntimeError("Nothing to change: pass at least one field.")
+        return await _dashboard_send(
+            config, "PUT", f"portins/{order_id}", body, account_id
+        )
+
+    @mcp.tool(name="cancelPortInOrder", annotations=_DESTRUCTIVE)
+    async def cancel_port_in_order(order_id: str, account_id: str = "") -> dict:
+        """CANCEL a port-in order (only possible before FOC). Destructive:
+        the port stops and the order closes. Confirm with the user first.
+
+        Args:
+            order_id: The LNP order id (from listPortInOrders).
+            account_id: Optional account (see listAccounts).
+        """
+        return await _dashboard_send(
+            config, "DELETE", f"portins/{order_id}", None, account_id
+        )

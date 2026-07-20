@@ -42,3 +42,54 @@ def test_route_map_applies_enabled_and_excluded_together():
     assert keep == MCPType.TOOL
     assert dropped_excluded == MCPType.EXCLUDE
     assert dropped_unlisted == MCPType.EXCLUDE
+
+
+import pytest
+from fastmcp import FastMCP
+from fastmcp.client import Client
+from xml.etree.ElementTree import tostring
+
+import src.tools.numbers as numbers_mod
+from src.tools.numbers import register_numbers_tools
+
+
+@pytest.mark.asyncio
+async def test_write_tools_build_correct_escaped_xml(monkeypatch):
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["method"], sent["path"] = method, path
+        sent["xml"] = tostring(body, encoding="unicode") if body is not None else None
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("orderPhoneNumbers", {
+            "numbers": ["+1 (919) 555-1234"], "site_id": "s1",
+            "order_name": 'Rick & "Jason" <order>'})
+        assert sent["method"] == "POST" and sent["path"] == "orders"
+        assert "<TelephoneNumber>9195551234</TelephoneNumber>" in sent["xml"]
+        # user text must be escaped, never raw XML
+        assert "&amp;" in sent["xml"] and "<order>" not in sent["xml"]
+
+        await client.call_tool("disconnectPhoneNumbers", {
+            "numbers": ["9195551234"], "order_name": "cleanup"})
+        assert sent["path"] == "disconnects"
+        assert "<DisconnectTelephoneNumberOrderType>" in sent["xml"]
+
+        await client.call_tool("createPortInOrder", {
+            "billing_telephone_number": "1-919-555-0000",
+            "numbers": ["9195550000"], "site_id": "s1",
+            "loa_authorizing_person": "Rick Waldrip",
+            "business_name": "Phoneware", "house_number": "1", "street_name": "Main",
+            "city": "Phoenix", "state_code": "AZ", "zip_code": "85001"})
+        assert sent["path"] == "portins"
+        assert "<BillingTelephoneNumber>9195550000</BillingTelephoneNumber>" in sent["xml"]
+        assert "<SubscriberType>BUSINESS</SubscriberType>" in sent["xml"]
+
+        await client.call_tool("cancelPortInOrder", {"order_id": "ord-9"})
+        assert sent["method"] == "DELETE" and sent["path"] == "portins/ord-9"
+        assert sent["xml"] is None

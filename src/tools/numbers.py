@@ -135,7 +135,9 @@ def register_numbers_tools(mcp, config: dict) -> None:
     """Register read-only Numbers/Dashboard API tools."""
 
     @mcp.tool(name="listPortInOrders", annotations=_READ)
-    async def list_port_in_orders(status: str = "", account_id: str = "") -> dict:
+    async def list_port_in_orders(
+        status: str = "", size: int = 300, account_id: str = ""
+    ) -> dict:
         """List port-in (LNP) orders on the account.
 
         Args:
@@ -144,12 +146,15 @@ def register_numbers_tools(mcp, config: dict) -> None:
                 requested_supp, foc, requested_cancel, cancelled, complete).
                 Pass "pending" as shorthand for every non-terminal status.
                 Empty returns all orders.
+            size: Max orders to return (default 300).
             account_id: Optional account to query (see listAccounts).
         """
         s = status.strip().lower()
         if s == "pending":
             s = _PENDING_LNP_STATUSES
-        path = "portins" + (f"?status={s}" if s else "")
+        # page+size are REQUIRED: Bandwidth 404s /portins without them
+        # (confirmed live; the 404 body even advertises the paged link).
+        path = f"portins?page=1&size={int(size)}" + (f"&status={s}" if s else "")
         return await _dashboard_json(config, path, account_id)
 
     @mcp.tool(name="getPortInOrder", annotations=_READ)
@@ -254,16 +259,20 @@ def register_numbers_tools(mcp, config: dict) -> None:
         return await _dashboard_json_abs(config, f"tns/{tn}/tndetails")
 
     @mcp.tool(name="listPortOutOrders", annotations=_READ)
-    async def list_port_out_orders(status: str = "", account_id: str = "") -> dict:
+    async def list_port_out_orders(
+        status: str = "", size: int = 300, account_id: str = ""
+    ) -> dict:
         """List port-OUT orders: numbers being ported AWAY from the account.
 
         Args:
             status: Optional comma-separated Bandwidth LNP statuses to filter
                 by. Empty returns all port-out orders.
+            size: Max orders to return (default 300).
             account_id: Optional account to query (see listAccounts).
         """
         s = status.strip().lower()
-        path = "portouts" + (f"?status={s}" if s else "")
+        # page+size are REQUIRED here too (same 404 quirk as /portins).
+        path = f"portouts?page=1&size={int(size)}" + (f"&status={s}" if s else "")
         return await _dashboard_json(config, path, account_id)
 
     @mcp.tool(name="getPortOutOrder", annotations=_READ)

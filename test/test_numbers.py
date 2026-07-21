@@ -93,3 +93,26 @@ async def test_write_tools_build_correct_escaped_xml(monkeypatch):
         await client.call_tool("cancelPortInOrder", {"order_id": "ord-9"})
         assert sent["method"] == "DELETE" and sent["path"] == "portins/ord-9"
         assert sent["xml"] is None
+
+
+@pytest.mark.asyncio
+async def test_portin_portout_lists_always_send_page_and_size(monkeypatch):
+    """Bandwidth 404s /portins and /portouts without explicit page+size
+    (discovered live; the 404 body advertises the paged link)."""
+    paths = []
+
+    async def fake_json(config, path, account_id=""):
+        paths.append(path)
+        return {}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_json", fake_json)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("listPortInOrders", {})
+        await client.call_tool("listPortInOrders", {"status": "pending", "size": 50})
+        await client.call_tool("listPortOutOrders", {})
+    assert paths[0] == "portins?page=1&size=300"
+    assert paths[1].startswith("portins?page=1&size=50&status=")
+    assert paths[2] == "portouts?page=1&size=300"

@@ -74,7 +74,11 @@ steps:
       # through intact.
       # Messaging is deliberately absent: Phoneware texts via Clerk/NS, not
       # Bandwidth directly (no createMessage/listMessages/media/inbound).
-      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_MCP_PROFILE=voice,lookup,numbers,numbers-write,billing@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
+      # BW_ACCOUNT_ID pins the default account: the OAuth token lists the
+      # accounts in an order where [0] is NOT the main Phoneware account
+      # (5011296 first, 5011369 = the account the numbers live on). Tools
+      # still reach the other account via their account_id parameter.
+      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_ACCOUNT_ID=5011369@BW_MCP_PROFILE=voice,lookup,numbers,numbers-write,billing@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
 
 substitutions:
   _REGION: us-central1

@@ -2,7 +2,7 @@
 
 Bandwidth's report engine is self-describing and async: list the available
 report definitions (billing detail records, number inventory, usage, ...),
-create an instance with parameters, poll it, then download the file.
+create an instance with parameters, poll until Status "Ready", then download the file.
 (The older /billingreports endpoint is deprecated in favor of this.)
 
 Flow for an agent:
@@ -74,7 +74,7 @@ def register_reports_tools(mcp, config: dict) -> None:
         account_id: str = "",
     ) -> dict:
         """Generate a report: creates an async instance with the given
-        parameters. Poll getReportInstance until COMPLETED, then download.
+        parameters. Poll getReportInstance until Status is "Ready", then download.
 
         Args:
             report_id: The report definition id (from listReports).

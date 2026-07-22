@@ -53,9 +53,11 @@ PROFILES: dict[str, list[str]] = {
         "listSipPeers",
         "getPhoneNumberDetail",
         "checkPortability",
-        # Grid inventory listing lives in discovery (voice profile) too;
-        # include it here so numbers-only deployments can see inventory.
+        # Inventory + application listing also live in the voice profile;
+        # included here so numbers-only deployments keep them (Phoneware's
+        # deployment drops voice: its creds have no Bandwidth Voice access).
         "listPhoneNumbers",
+        "listApplications",
     ],
     # Carrier WRITES: buy, remove, and port real service. Deployed only
     # where the operator explicitly opts in.

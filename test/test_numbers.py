@@ -116,3 +116,29 @@ async def test_portin_portout_lists_always_send_page_and_size(monkeypatch):
     assert paths[0] == "portins?page=1&size=300"
     assert paths[1].startswith("portins?page=1&size=50&status=")
     assert paths[2] == "portouts?page=1&size=300"
+
+
+@pytest.mark.asyncio
+async def test_number_orders_paged_and_lnpchecker_e164(monkeypatch):
+    paths, bodies = [], []
+
+    async def fake_json(config, path, account_id=""):
+        paths.append(path)
+        return {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        bodies.append((path, tostring(body, encoding="unicode")))
+        return {}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_json", fake_json)
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+    async with Client(mcp) as client:
+        await client.call_tool("listNumberOrders", {})
+        await client.call_tool("checkPortability", {"numbers": ["(480) 528-7344"]})
+    assert paths[0] == "orders?page=1&size=300"
+    path, xml = bodies[0]
+    assert path.startswith("lnpchecker")
+    # lnpchecker is E.164; every other endpoint takes bare 10-digit
+    assert "<Tn>+14805287344</Tn>" in xml

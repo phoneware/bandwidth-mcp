@@ -208,13 +208,17 @@ def register_numbers_tools(mcp, config: dict) -> None:
         )
 
     @mcp.tool(name="listNumberOrders", annotations=_READ)
-    async def list_number_orders(account_id: str = "") -> dict:
+    async def list_number_orders(size: int = 300, account_id: str = "") -> dict:
         """List new-number orders on the account (order history).
 
         Args:
+            size: Max orders to return (default 300).
             account_id: Optional account to query (see listAccounts).
         """
-        return await _dashboard_json(config, "orders", account_id)
+        # page+size required here too ("Size and page parameters are required").
+        return await _dashboard_json(
+            config, f"orders?page=1&size={int(size)}", account_id
+        )
 
     @mcp.tool(name="getNumberOrder", annotations=_READ)
     async def get_number_order(order_id: str, account_id: str = "") -> dict:
@@ -294,8 +298,16 @@ def register_numbers_tools(mcp, config: dict) -> None:
             numbers: Telephone numbers to check (10-digit).
             account_id: Optional account (see listAccounts).
         """
+        # lnpchecker is the one Dashboard endpoint that requires E.164
+        # ("Retry request with all E.164 formatted phone numbers"); the rest
+        # of the API wants bare 10-digit.
         body = Element("NumberPortabilityRequest")
-        _tn_list(body, "TnList", "Tn", numbers)
+        lst = SubElement(body, "TnList")
+        for n in numbers:
+            digits = "".join(ch for ch in str(n) if ch.isdigit())
+            if len(digits) == 10:
+                digits = "1" + digits
+            SubElement(lst, "Tn").text = "+" + digits
         return await _dashboard_send(
             config, "POST", "lnpchecker?fullCheck=true", body, account_id
         )

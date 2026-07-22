@@ -81,7 +81,10 @@ steps:
       # voice profile dropped: these creds return 403 on every Voice API
       # call (Phoneware's voice platform is NetSapiens, not Bandwidth), so
       # the voice tools were dead weight that could only mislead the agent.
-      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_ACCOUNT_ID=5011369@BW_MCP_PROFILE=lookup,numbers,numbers-write,billing@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
+      # lookup profile also dropped: the TN Lookup product is not enabled on
+      # this Bandwidth account ("Account not authorized"); re-add the profile
+      # here if Bandwidth enables it.
+      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_ACCOUNT_ID=5011369@BW_MCP_PROFILE=numbers,numbers-write,billing@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud
 
 substitutions:
   _REGION: us-central1

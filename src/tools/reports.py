@@ -43,6 +43,17 @@ def register_reports_tools(mcp, config: dict) -> None:
         """
         return await _dashboard_json(config, "reports", account_id)
 
+    @mcp.tool(name="getReport", annotations=_READ)
+    async def get_report(report_id: str, account_id: str = "") -> dict:
+        """Get one report definition, including its Parameters spec (names,
+        types, which are required). Read this before createReportInstance.
+
+        Args:
+            report_id: The report definition id (from listReports).
+            account_id: Optional account (see listAccounts).
+        """
+        return await _dashboard_json(config, f"reports/{report_id}", account_id)
+
     @mcp.tool(name="listReportInstances", annotations=_READ)
     async def list_report_instances(report_id: str, account_id: str = "") -> dict:
         """List previously generated instances of one report.
@@ -57,19 +68,25 @@ def register_reports_tools(mcp, config: dict) -> None:
 
     @mcp.tool(name="createReportInstance", annotations=_WRITE)
     async def create_report_instance(
-        report_id: str, parameters: dict, account_id: str = ""
+        report_id: str,
+        parameters: dict,
+        output_format: str = "csv",
+        account_id: str = "",
     ) -> dict:
         """Generate a report: creates an async instance with the given
         parameters. Poll getReportInstance until COMPLETED, then download.
 
         Args:
             report_id: The report definition id (from listReports).
-            parameters: Name/value pairs the report requires (listReports
-                shows each report's parameter names, e.g. AccountId, Start
-                Date, End Date).
+            parameters: Name/value pairs from the report's Parameters spec
+                (call getReport first; names can contain spaces, e.g.
+                "Snapshot Date", dates are YYYY-MM-DD).
+            output_format: One of csv, xlsx, pdf, html, xml (default csv;
+                csv works best with downloadReportFile).
             account_id: Optional account (see listAccounts).
         """
         body = Element("Instance")
+        SubElement(body, "OutputFormat").text = output_format
         params = SubElement(body, "Parameters")
         for name, value in (parameters or {}).items():
             p = SubElement(params, "Parameter")

@@ -71,6 +71,7 @@ PROFILES: dict[str, list[str]] = {
     # Usage/billing reports via the async /reports engine.
     "billing": [
         "listReports",
+        "getReport",
         "listReportInstances",
         "createReportInstance",
         "getReportInstance",

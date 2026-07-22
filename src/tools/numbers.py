@@ -60,6 +60,10 @@ def _xml_to_data(el):
 
 async def _dashboard_json(config: dict, path: str, account_id: str = "") -> dict:
     xml = await _dashboard_get(config, path, account_id)
+    if not xml.strip():
+        # Some endpoints return an empty body for "nothing here" (e.g. a
+        # port-in order with no notes).
+        return {"empty": True}
     root = fromstring(xml)
     return {root.tag: _xml_to_data(root)}
 

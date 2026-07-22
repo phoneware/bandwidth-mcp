@@ -8,7 +8,7 @@ create an instance with parameters, poll until Status "Ready", then download the
 Flow for an agent:
   1. listReports -> pick a report id and see its required parameters.
   2. createReportInstance(report_id, parameters) -> instance id.
-  3. getReportInstance until Status is COMPLETED.
+  3. getReportInstance until Status is "Ready".
   4. downloadReportFile -> CSV text (zip archives are unpacked in memory,
      large files truncated).
 """
@@ -100,8 +100,8 @@ def register_reports_tools(mcp, config: dict) -> None:
     async def get_report_instance(
         report_id: str, instance_id: str, account_id: str = ""
     ) -> dict:
-        """Check the status of a report instance (RECEIVED / PROCESSING /
-        COMPLETED).
+        """Check the status of a report instance ("Ready" means the file is
+        downloadable).
 
         Args:
             report_id: The report definition id.
@@ -116,12 +116,12 @@ def register_reports_tools(mcp, config: dict) -> None:
     async def download_report_file(
         report_id: str, instance_id: str, account_id: str = ""
     ) -> dict:
-        """Download a COMPLETED report instance. Zip archives are unpacked in
+        """Download a Ready report instance. Zip archives are unpacked in
         memory; text is truncated past 200,000 characters.
 
         Args:
             report_id: The report definition id.
-            instance_id: The completed instance id.
+            instance_id: The Ready instance id.
             account_id: Optional account (see listAccounts).
         """
         import httpx

@@ -188,6 +188,54 @@ Auth: client_credentials.
 | `createAsyncBulkLookup` | Lookup for many numbers | poll `getAsyncBulkLookup` |
 | `getAsyncBulkLookup` | Poll a bulk lookup | `status` is `complete` |
 
+### Profile: `numbers`
+
+Auth: client_credentials with a **Numbers/Dashboard** role. Hand-written
+read-only tools over the XML Dashboard API (`/api/v2/accounts/{id}/…`), returned
+as JSON. Includes CNAM (LIDB) reads. TNs are bare 10-digit (no `+1`).
+
+| Tool | Purpose | Check after |
+|---|---|---|
+| `listPortInOrders` | List port-in (LNP) orders; filter by status (`pending` = every non-terminal) | inspect `ProcessingStatus` per order |
+| `getPortInOrder` / `getPortInNotes` | One port-in order's status/FOC/errors and its notes | — |
+| `listPortOutOrders` / `getPortOutOrder` | Numbers porting away, and winning-carrier detail | — |
+| `searchAvailableNumbers` | Search Bandwidth inventory (read-only, orders nothing) | candidate list |
+| `listNumberOrders` / `getNumberOrder` | New-number order history and detail | — |
+| `listSites` / `listSipPeers` | Sites and the SIP peers numbers route to | ids feed ordering/porting |
+| `getPhoneNumberDetail` | Full detail for one number: account, site, peer, features (e911, messaging, CNAM) | — |
+| `checkPortability` | Whether numbers can port to Bandwidth, and can port together | run before `createPortInOrder` |
+| `listLidbOrders` | CNAM (LIDB) order history touching a number | inspect order statuses |
+| `getLidbOrder` | One CNAM order: `ProcessingStatus`, numbers, `SubscriberInformation`, per-TN `ErrorList` | `ProcessingStatus` is `COMPLETE` |
+
+There is **no CNAM dip** in the Bandwidth spec set: TN Lookup v2 (`lookup`
+profile) returns carrier/line-type only, not the name behind an inbound number.
+The tools here manage the calling name on numbers you own.
+
+### Profile: `numbers-write`
+
+Auth: client_credentials with Numbers-write access. **Live carrier writes** —
+they buy, remove, port real service, or change caller-ID name, most of them
+billable. Confirm the exact numbers/name with the user before calling.
+
+| Tool | Purpose | Check after |
+|---|---|---|
+| `orderPhoneNumbers` | Purchase specific numbers onto the account | poll `getNumberOrder` |
+| `disconnectPhoneNumbers` | Remove numbers from service (destructive; they age out) | absent on next `getPhoneNumberDetail` |
+| `createPortInOrder` | Start an LNP port-in (LOA still uploaded in Dashboard) | poll `getPortInOrder` |
+| `supplementPortInOrder` / `cancelPortInOrder` | Modify or cancel a port-in (cancel only before FOC) | poll `getPortInOrder` |
+| `createLidbOrder` | Set the CNAM (calling name) on one or more TNs. Name ≤ 15 chars; `UseType` BUSINESS/RESIDENTIAL, `Visibility` PUBLIC/PRIVATE | returns an `orderId`; poll `getLidbOrder` until `COMPLETE`, check per-TN `ErrorList` |
+
+### Profile: `billing`
+
+Auth: client_credentials. Async report engine — create an instance, poll, then download.
+
+| Tool | Purpose | Check after |
+|---|---|---|
+| `listReports` / `getReport` | Available report types | — |
+| `createReportInstance` | Run a report | poll `getReportInstance` |
+| `listReportInstances` / `getReportInstance` | Poll instance status | status is `Ready` |
+| `downloadReportFile` | Download a completed report | file payload |
+
 ## Output shape
 
 All tools return JSON dicts. Success responses are the tool's natural payload

@@ -69,3 +69,25 @@ BW_MCP_TOOLS=validateAddress
 # CLI Flag
 --tools validateAddress
 ```
+
+## Setting a Caller ID Name (CNAM)
+
+CNAM — the calling name shown on the phone of the people you call — is managed
+on Bandwidth as LIDB orders. To set and check the name on numbers you own:
+- `createLidbOrder` - Set the calling name (≤ 15 chars) on one or more numbers
+- `getLidbOrder` - Poll the resulting order until it completes, and read any per-number errors
+- `listLidbOrders` - See the calling-name order history for a number
+
+`createLidbOrder` is a billable carrier write, so it lives in the `numbers-write`
+profile; the two read tools live in `numbers`. All three require `BW_ACCOUNT_ID`
+and credentials with the Dashboard/Numbers role. There is no CNAM *dip* (looking
+up the name behind an inbound number) in the Bandwidth API — TN Lookup returns
+carrier and line type only.
+
+**Enabling these tools**
+```sh
+# Environment Variable
+BW_MCP_TOOLS=createLidbOrder,getLidbOrder,listLidbOrders
+# CLI Flag
+--tools createLidbOrder,getLidbOrder,listLidbOrders
+```

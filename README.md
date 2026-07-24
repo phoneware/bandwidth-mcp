@@ -291,6 +291,9 @@ BW_MCP_PROFILE=messaging    # SMS/MMS tools only
 BW_MCP_PROFILE=voice        # Voice + BXML tools
 BW_MCP_PROFILE=onboarding   # Account creation
 BW_MCP_PROFILE=lookup       # Number intelligence
+BW_MCP_PROFILE=numbers      # Numbers/porting + CNAM reads (Dashboard API)
+BW_MCP_PROFILE=numbers-write # Carrier writes: order/port numbers, set CNAM
+BW_MCP_PROFILE=billing      # Usage/billing reports
 BW_MCP_PROFILE=messaging,voice  # Combine profiles
 ```
 
@@ -344,6 +347,30 @@ Kicks off a new Bandwidth Build account. Only one tool is exposed — SMS verifi
 - `downloadCallRecording` — download the media
 - `deleteRecording` — remove a recording
 - `transcribeCallRecording` / `getRecordingTranscription` — request and read transcription
+
+### Profile: `numbers`
+Read-only tools over the Bandwidth Dashboard (Numbers) XML API — port orders, inventory, sites, number detail, and CNAM (calling-name) order history.
+- `listPortInOrders` / `getPortInOrder` / `getPortInNotes` — port-in (LNP) orders
+- `listPortOutOrders` / `getPortOutOrder` — port-out orders
+- `searchAvailableNumbers` — search Bandwidth inventory (does not order)
+- `listNumberOrders` / `getNumberOrder` — new-number order history
+- `listSites` / `listSipPeers` — sites and where their numbers route
+- `getPhoneNumberDetail` — full detail for one number (account, site, features)
+- `checkPortability` — can these numbers port to Bandwidth, together?
+- `listLidbOrders` — CNAM (LIDB) order history for a number
+- `getLidbOrder` — status + calling name for one CNAM order
+
+### Profile: `numbers-write`
+Carrier writes: real, often billable actions. Opt in explicitly; confirm specifics with the user before calling.
+- `orderPhoneNumbers` — purchase numbers onto the account
+- `disconnectPhoneNumbers` — remove numbers from service (destructive)
+- `createPortInOrder` / `supplementPortInOrder` / `cancelPortInOrder` — LNP port-ins
+- `createLidbOrder` — set the CNAM (calling name) shown on outbound calls from a number
+
+### Profile: `billing`
+- `listReports` / `getReport` — available report types
+- `createReportInstance` / `listReportInstances` / `getReportInstance` — run and poll a report
+- `downloadReportFile` — download a completed report
 
 See [`src/specs/AGENTS.md`](src/specs/AGENTS.md) for argument-level guidance, polling
 patterns, and the structured error shape the server returns on failure.

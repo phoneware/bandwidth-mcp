@@ -53,8 +53,8 @@ The profiles themselves live in [`src/profiles.py`](src/profiles.py):
 
 | Profile | Tools (high level) |
 |---|---|
-| `numbers` | port-in/out orders + notes, `searchAvailableNumbers`, number orders, sites, SIP peers, `getPhoneNumberDetail`, `checkPortability`, plus `listPhoneNumbers` / `listApplications` |
-| `numbers-write` | `orderPhoneNumbers`, `disconnectPhoneNumbers`, `createPortInOrder`, `supplementPortInOrder`, `cancelPortInOrder` (real, billable carrier actions) |
+| `numbers` | port-in/out orders + notes, `searchAvailableNumbers`, number orders, sites, SIP peers, `getPhoneNumberDetail`, `checkPortability`, CNAM reads (`listLidbOrders`, `getLidbOrder`), plus `listPhoneNumbers` / `listApplications` |
+| `numbers-write` | `orderPhoneNumbers`, `disconnectPhoneNumbers`, `createPortInOrder`, `supplementPortInOrder`, `cancelPortInOrder`, `createLidbOrder` (set CNAM) — real, billable carrier actions |
 | `billing` | `listReports`, `getReport`, report instances (create/get/list), `downloadReportFile` |
 | `voice` / `messaging` / `lookup` / `recordings` / `onboarding` | upstream surfaces, available locally, off in the deployment |
 

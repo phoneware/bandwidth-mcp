@@ -1,5 +1,13 @@
 # Bandwidth MCP Server — Agent Reference
 
+> **Deployed surface note (Phoneware fork).** This reference is written around the
+> upstream voice / messaging / lookup / recordings tools. The Phoneware
+> deployment instead runs the **numbers / porting / carrier / billing** surface
+> (`BW_MCP_PROFILE=numbers,numbers-write,billing`); voice, messaging, and lookup
+> are off. For what actually ships, and for the numbers/porting/reports tools,
+> see the repo `README.md` and `CLAUDE.md`. The auth model, error shape, and
+> "trust nothing" polling guidance below still apply.
+
 Structured reference for AI agents using the Bandwidth MCP Server. Covers the
 tool inventory, the credentials each tool needs, the order to call things, and
 how the server reports failure. Self-contained — an agent should not need to

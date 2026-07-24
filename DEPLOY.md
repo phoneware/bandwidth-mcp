@@ -28,10 +28,14 @@ config, not on the server.
   `--min-instances=1`, `--max-instances=1` (do not scale to zero or fan out).
 
 ## Coverage note
-This server does Voice, Messaging, Lookup, and Recordings. It does **not** do
-phone-number search/order/activation/release or e911 (those live in Bandwidth's
-`band` CLI + Dashboard/Numbers API). Number provisioning would be a separate
-companion MCP over `api.bandwidth.com/api/v2`.
+The live deployment runs the **numbers / porting / carrier / billing** surface
+(`BW_MCP_PROFILE=numbers,numbers-write,billing`): port-in/out orders,
+available-number search, number orders, sites, SIP peers, per-number detail,
+portability, carrier writes (order/disconnect/port), and usage/billing reports,
+over Bandwidth's XML Dashboard API (`api.bandwidth.com/api/v2`). Voice,
+messaging, and lookup are built but **off** in the deployment (those creds 403;
+Phoneware's voice is NetSapiens and texting is Clerk/NS). e911 provisioning is
+not exposed. The surface is set in `cloudbuild.yaml`, see `CLAUDE.md`.
 
 ## One-time setup (needs an operator / the owner)
 1. **Bandwidth API creds.** Create/obtain the Bandwidth API `client_id` +

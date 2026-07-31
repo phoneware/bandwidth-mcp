@@ -44,6 +44,7 @@ PROFILES: dict[str, list[str]] = {
         "listPortInOrders",
         "getPortInOrder",
         "getPortInNotes",
+        "listPortInLoas",
         "listPortOutOrders",
         "getPortOutOrder",
         "searchAvailableNumbers",
@@ -68,6 +69,7 @@ PROFILES: dict[str, list[str]] = {
         "orderPhoneNumbers",
         "disconnectPhoneNumbers",
         "createPortInOrder",
+        "uploadPortInLoa",
         "supplementPortInOrder",
         "cancelPortInOrder",
         # CNAM (LIDB) write — set the calling name on TN(s). Billable.

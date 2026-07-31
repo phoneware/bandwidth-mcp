@@ -148,6 +148,14 @@ the single source of truth for the whole surface. Filter precedence lives in
   explicit `page` + `size`. The hand-written tools always send them.
 - **`lnpchecker` wants E.164** (`+1NXXNXXXXXX`); every other Dashboard endpoint
   wants bare 10-digit. `checkPortability` handles the conversion.
+- **Port-ins need a subscriber name AND full service address** (as they appear
+  on the losing carrier's bill), so `createPortInOrder` validates up front via
+  `_port_in_problems` rather than spending a live carrier write on a 400.
+- **LOA upload is raw bytes, not multipart**: POST the document with its own
+  `Content-Type` to `portins/{id}/loas`, then PUT `<FileMetaData>` to
+  `.../loas/{filename}/metadata` to mark it as the LOA. `uploadPortInLoa` does
+  both, and reports a metadata failure instead of raising (the file is already
+  stored by then).
 - **Report instances finish as `Status: Ready`**, not the documented
   `COMPLETED`. Poll for `Ready`.
 - **Empty response bodies mean "nothing here"** on several Dashboard endpoints

@@ -20,12 +20,19 @@ requests against `{api_base}/api/v2/accounts/{accountId}/…`, parsed back to JS
   `_xml_text`, and **`_resolve_account`** (below). `listPhoneNumbers` tries
   `/tns` (Numbers role) then falls back to `/inserviceNumbers` (inservice role),
   because different creds hold different roles.
-- **`numbers.py`**: the reseller surface. Read: port-in/out orders + notes,
-  available-number search, number orders, sites, SIP peers, per-number detail,
-  `checkPortability`. Write (`numbers-write` profile): `orderPhoneNumbers`,
-  `disconnectPhoneNumbers`, `createPortInOrder`, `supplementPortInOrder`,
-  `cancelPortInOrder`. Also the generic `_xml_to_data`, `_dashboard_json`, and
-  `_dashboard_send` helpers reused by `reports.py`.
+- **`numbers.py`**: the reseller surface. Read: port-in/out orders + notes +
+  uploaded documents (`listPortInLoas`), available-number search, number orders,
+  sites, SIP peers, per-number detail, `checkPortability`. Write
+  (`numbers-write` profile): `orderPhoneNumbers`, `disconnectPhoneNumbers`,
+  `createPortInOrder`, `uploadPortInLoa`, `supplementPortInOrder`,
+  `cancelPortInOrder`. Also the generic `_xml_to_data`, `_dashboard_json`,
+  `_dashboard_send`, and `_dashboard_upload` helpers (`reports.py` reuses the
+  first three).
+  **Port-in validation lives in `_port_in_problems`**, not in the tool body:
+  Bandwidth requires the subscriber name and full service address, so the tool
+  collects every problem and raises once rather than spending a live carrier
+  write to discover them. Keep new required-field rules there so they stay
+  unit-testable without a mocked HTTP round trip.
 - **`reports.py`**: usage/billing over the async `/reports` engine: list report
   definitions, create an instance, poll until `Ready`, download the file (zip
   archives unpacked in memory, text truncated at 200k chars).

@@ -206,6 +206,7 @@ as JSON. Includes CNAM (LIDB) reads. TNs are bare 10-digit (no `+1`).
 |---|---|---|
 | `listPortInOrders` | List port-in (LNP) orders; filter by status (`pending` = every non-terminal) | inspect `ProcessingStatus` per order |
 | `getPortInOrder` / `getPortInNotes` | One port-in order's status/FOC/errors and its notes | — |
+| `listPortInLoas` | Documents already uploaded to a port-in order | empty = why it sits in `PENDING_DOCUMENTS` |
 | `listPortOutOrders` / `getPortOutOrder` | Numbers porting away, and winning-carrier detail | — |
 | `searchAvailableNumbers` | Search Bandwidth inventory (read-only, orders nothing) | candidate list |
 | `listNumberOrders` / `getNumberOrder` | New-number order history and detail | — |
@@ -229,7 +230,8 @@ billable. Confirm the exact numbers/name with the user before calling.
 |---|---|---|
 | `orderPhoneNumbers` | Purchase specific numbers onto the account | poll `getNumberOrder` |
 | `disconnectPhoneNumbers` | Remove numbers from service (destructive; they age out) | absent on next `getPhoneNumberDetail` |
-| `createPortInOrder` | Start an LNP port-in (LOA still uploaded in Dashboard) | poll `getPortInOrder` |
+| `createPortInOrder` | Start an LNP port-in. Subscriber name + full service address are REQUIRED and must match the losing carrier's bill; the tool refuses an incomplete order instead of submitting it. Partial port = `partial_port` + `new_billing_telephone_number`; a full port must include the BTN | poll `getPortInOrder` |
+| `uploadPortInLoa` | Upload the signed LOA (base64) onto an order and tag its `DocumentType` | `listPortInLoas`, then `getPortInOrder` leaves `PENDING_DOCUMENTS` |
 | `supplementPortInOrder` / `cancelPortInOrder` | Modify or cancel a port-in (cancel only before FOC) | poll `getPortInOrder` |
 | `createLidbOrder` | Set the CNAM (calling name) on one or more TNs. Name ≤ 15 chars; `UseType` BUSINESS/RESIDENTIAL, `Visibility` PUBLIC/PRIVATE | returns an `orderId`; poll `getLidbOrder` until `COMPLETE`, check per-TN `ErrorList` |
 

@@ -3,15 +3,19 @@
 The upstream server ships no Numbers-API tools ("the API is XML-based and
 from_openapi sends JSON" — profiles.py), which leaves out the operations a
 carrier reseller actually lives in: port-in (LNP) orders, available-number
-search, new-number orders, and sites. These are hand-written read-only tools
-in the same style as tools/discovery.py: authenticated XML GETs against
+search, new-number orders, and sites. These are hand-written tools in the same
+style as tools/discovery.py: authenticated XML calls against
 `{api_base}/api/v2/accounts/{accountId}/…`, returned as JSON via a generic
 XML→dict conversion so Bandwidth schema drift doesn't silently drop fields.
 
-All tools are read-only. Number ordering/porting WRITES are deliberately not
-exposed; carrier mutations stay in the Bandwidth Dashboard.
+Reads register under the `numbers` profile; the carrier WRITES (ordering,
+disconnects, port-in create/supp/cancel, LOA upload) register under
+`numbers-write` and only ship where the operator opts in.
 """
 
+import base64
+import re
+from datetime import datetime
 from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 
 import httpx
@@ -108,6 +112,13 @@ async def _dashboard_send(
                 "Accept": "application/xml",
             },
         )
+    return _write_result(resp)
+
+
+def _write_result(resp: httpx.Response) -> dict:
+    """Shared handling for Dashboard writes: raise on error, else return the
+    parsed body plus the Location header's trailing id (order/file creates
+    return one)."""
     if resp.status_code >= 400:
         raise RuntimeError(
             f"Bandwidth rejected the request ({resp.status_code}): {resp.text[:2000]}"
@@ -126,17 +137,176 @@ async def _dashboard_send(
     return out
 
 
+def _uploaded_filename(payload: dict) -> str:
+    """The stored file name out of Bandwidth's upload response body."""
+    for value in payload.values():
+        if isinstance(value, dict):
+            for key in ("filename", "fileName", "FileName"):
+                name = value.get(key)
+                if isinstance(name, str) and name:
+                    return name
+    return ""
+
+
+async def _dashboard_upload(
+    config: dict, path: str, content: bytes, content_type: str, account_id: str = ""
+) -> dict:
+    """Authenticated binary POST to /accounts/{id}/{path}.
+
+    Bandwidth's LNP document upload takes the raw file bytes with the
+    document's own Content-Type, not multipart and not XML."""
+    token = config.get("BW_ACCESS_TOKEN")
+    if not token:
+        raise RuntimeError("Not authenticated.")
+    account = _resolve_account(config, account_id)
+    url = f"{dashboard_api_base()}/accounts/{account}/{path}"
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        resp = await client.post(
+            url,
+            content=content,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": content_type,
+                "Accept": "application/xml",
+            },
+        )
+    return _write_result(resp)
+
+
+def _clean_tn(value) -> str:
+    """Bare 10-digit form: strip formatting and a leading US country code."""
+    digits = "".join(ch for ch in str(value) if ch.isdigit())
+    if len(digits) == 11 and digits.startswith("1"):
+        digits = digits[1:]
+    return digits
+
+
 def _tn_list(parent: Element, wrapper: str, tag: str, numbers: list) -> None:
     lst = SubElement(parent, wrapper)
     for n in numbers:
-        digits = "".join(ch for ch in str(n) if ch.isdigit())
-        if len(digits) == 11 and digits.startswith("1"):
-            digits = digits[1:]
-        SubElement(lst, tag).text = digits
+        SubElement(lst, tag).text = _clean_tn(n)
+
+
+_ZIP_RE = re.compile(r"^\d{5}(-?\d{4})?$")
+
+# Bandwidth's DocumentType enum on LNP file metadata.
+_DOCUMENT_TYPES = ("LOA", "INVOICE", "CSR", "OTHER")
+
+# Content types Bandwidth accepts for LNP document upload, by file extension.
+_UPLOAD_TYPES = {
+    "pdf": "application/pdf",
+    "tif": "image/tiff",
+    "tiff": "image/tiff",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+    "txt": "text/plain",
+}
+
+
+def _port_in_problems(
+    numbers: list,
+    billing_telephone_number: str,
+    business_name: str,
+    first_name: str,
+    last_name: str,
+    house_number: str,
+    street_name: str,
+    city: str,
+    state_code: str,
+    zip_code: str,
+    requested_foc_date: str,
+    partial_port: bool,
+    new_billing_telephone_number: str,
+) -> list[str]:
+    """Everything wrong with a proposed port-in, as fixable statements.
+
+    Bandwidth's LNP schema makes the subscriber name and service address
+    mandatory, so submitting without them just burns a live carrier write on a
+    400. Catch it here and tell the agent exactly what to collect instead."""
+    problems: list[str] = []
+
+    ported = {_clean_tn(n) for n in numbers}
+    if not numbers:
+        problems.append("numbers: at least one telephone number to port")
+    else:
+        bad = [str(n) for n in numbers if len(_clean_tn(n)) != 10]
+        if bad:
+            problems.append(
+                "numbers: must be 10-digit US numbers, got " + ", ".join(bad)
+            )
+
+    if not business_name and not (first_name and last_name):
+        problems.append(
+            "subscriber: business_name (business account) OR first_name + "
+            "last_name (residential), exactly as it appears on the losing "
+            "carrier's bill"
+        )
+
+    missing = [
+        label
+        for label, value in (
+            ("house_number", house_number),
+            ("street_name", street_name),
+            ("city", city),
+            ("state_code", state_code),
+            ("zip_code", zip_code),
+        )
+        if not str(value).strip()
+    ]
+    if missing:
+        problems.append(
+            "service address (must match the losing carrier's bill): "
+            + ", ".join(missing)
+        )
+    if state_code.strip() and not (
+        len(state_code.strip()) == 2 and state_code.strip().isalpha()
+    ):
+        problems.append(f"state_code: two-letter state code, got {state_code!r}")
+    if zip_code.strip() and not _ZIP_RE.match(zip_code.strip()):
+        problems.append(f"zip_code: 5-digit ZIP or ZIP+4, got {zip_code!r}")
+
+    if requested_foc_date.strip():
+        try:
+            datetime.strptime(requested_foc_date.strip(), "%Y-%m-%d")
+        except ValueError:
+            problems.append(
+                f"requested_foc_date: YYYY-MM-DD, got {requested_foc_date!r}"
+            )
+
+    btn = _clean_tn(billing_telephone_number)
+    new_btn = _clean_tn(new_billing_telephone_number)
+    if partial_port and not new_btn:
+        problems.append(
+            "new_billing_telephone_number: required on a partial port — the TN "
+            "that stays with the losing carrier and becomes the BTN on what is "
+            "left of that account"
+        )
+    if new_btn and not partial_port:
+        problems.append(
+            "partial_port: pass true when new_billing_telephone_number is set"
+        )
+    if new_btn and new_btn in ported:
+        problems.append(
+            "new_billing_telephone_number must be a number staying with the "
+            "losing carrier, not one of the numbers being ported"
+        )
+    if btn and ported and not partial_port and btn not in ported:
+        problems.append(
+            f"billing_telephone_number {btn} is not in numbers: a full port has "
+            "to include the BTN. Either add it, or set partial_port=true and "
+            "give new_billing_telephone_number."
+        )
+
+    return problems
 
 
 def register_numbers_tools(mcp, config: dict) -> None:
-    """Register read-only Numbers/Dashboard API tools."""
+    """Register the Numbers/Dashboard API tools (reads + carrier writes).
+
+    Everything registers here; app.py prunes whatever the deployment's
+    profile/exclude config blocks, so a numbers-only deployment never sees
+    the writes."""
 
     @mcp.tool(name="listPortInOrders", annotations=_READ)
     async def list_port_in_orders(
@@ -180,6 +350,18 @@ def register_numbers_tools(mcp, config: dict) -> None:
             account_id: Optional account to query (see listAccounts).
         """
         return await _dashboard_json(config, f"portins/{order_id}/notes", account_id)
+
+    @mcp.tool(name="listPortInLoas", annotations=_READ)
+    async def list_port_in_loas(order_id: str, account_id: str = "") -> dict:
+        """List the documents (LOA and friends) already uploaded to a port-in
+        order. Empty means nothing is on file yet, which is why an order can
+        sit in PENDING_DOCUMENTS.
+
+        Args:
+            order_id: The LNP order id.
+            account_id: Optional account to query (see listAccounts).
+        """
+        return await _dashboard_json(config, f"portins/{order_id}/loas", account_id)
 
     @mcp.tool(name="searchAvailableNumbers", annotations=_READ)
     async def search_available_numbers(
@@ -387,41 +569,84 @@ def register_numbers_tools(mcp, config: dict) -> None:
         peer_id: str = "",
         losing_carrier_account_number: str = "",
         pin: str = "",
+        partial_port: bool = False,
+        new_billing_telephone_number: str = "",
+        customer_order_id: str = "",
         account_id: str = "",
     ) -> dict:
         """CREATE a port-in (LNP) order to bring numbers TO Bandwidth. A
         legally-binding carrier action against the losing carrier's account;
         run checkPortability first and confirm all details with the user.
-        The signed LOA still needs uploading in the Bandwidth Dashboard
-        before the order completes.
+
+        The subscriber name AND full service address are REQUIRED (Bandwidth
+        rejects the order without them) and must match the losing carrier's
+        bill, not wherever the numbers will end up ringing. Collect them from
+        the user before calling; the tool refuses incomplete orders rather
+        than firing a bad carrier write.
+
+        Porting only SOME of the numbers on the losing account is a partial
+        port: pass partial_port=true plus new_billing_telephone_number (a TN
+        that stays behind). A full port must include the BTN itself.
+
+        After the order is created, upload the signed LOA with
+        uploadPortInLoa, then poll getPortInOrder.
 
         Args:
             billing_telephone_number: The BTN on the losing carrier account.
             numbers: The numbers to port.
             site_id: Destination site (see listSites).
             loa_authorizing_person: Name of the person who signed the LOA.
-            business_name: Business subscriber name (or use first/last name
-                for residential).
+            business_name: Business subscriber name (required for a business
+                port; use first_name + last_name for residential).
             first_name: Residential subscriber first name.
             last_name: Residential subscriber last name.
-            house_number: Service address house number.
-            street_name: Service address street.
-            city: Service address city.
-            state_code: Service address two-letter state.
-            zip_code: Service address ZIP.
+            house_number: Service address house number (required).
+            street_name: Service address street (required).
+            city: Service address city (required).
+            state_code: Service address two-letter state (required).
+            zip_code: Service address ZIP or ZIP+4 (required).
             requested_foc_date: Optional requested port date (YYYY-MM-DD).
             peer_id: Optional destination SIP peer (see listSipPeers).
             losing_carrier_account_number: Account number with losing carrier.
             pin: PIN/passcode with the losing carrier, if any.
+            partial_port: True when only some of the losing account's numbers
+                are porting.
+            new_billing_telephone_number: On a partial port, the TN that stays
+                with the losing carrier and becomes its new BTN.
+            customer_order_id: Optional reference of yours, echoed back on the
+                order (useful for tying a port to a customer ticket).
             account_id: Optional account (see listAccounts).
         """
+        problems = _port_in_problems(
+            numbers,
+            billing_telephone_number,
+            business_name,
+            first_name,
+            last_name,
+            house_number,
+            street_name,
+            city,
+            state_code,
+            zip_code,
+            requested_foc_date,
+            partial_port,
+            new_billing_telephone_number,
+        )
+        if problems:
+            raise ValueError(
+                "Port-in order is incomplete, nothing was submitted to "
+                "Bandwidth. Collect these from the user and call again:\n- "
+                + "\n- ".join(problems)
+            )
+
         body = Element("LnpOrder")
+        if customer_order_id:
+            SubElement(body, "CustomerOrderId").text = customer_order_id
         if requested_foc_date:
-            SubElement(body, "RequestedFocDate").text = requested_foc_date
-        btn = "".join(ch for ch in billing_telephone_number if ch.isdigit())
-        if len(btn) == 11 and btn.startswith("1"):
-            btn = btn[1:]
-        SubElement(body, "BillingTelephoneNumber").text = btn
+            SubElement(body, "RequestedFocDate").text = requested_foc_date.strip()
+        SubElement(body, "BillingTelephoneNumber").text = _clean_tn(
+            billing_telephone_number
+        )
         subscriber = SubElement(body, "Subscriber")
         if business_name:
             SubElement(subscriber, "SubscriberType").text = "BUSINESS"
@@ -431,11 +656,11 @@ def register_numbers_tools(mcp, config: dict) -> None:
             SubElement(subscriber, "FirstName").text = first_name
             SubElement(subscriber, "LastName").text = last_name
         addr = SubElement(subscriber, "ServiceAddress")
-        SubElement(addr, "HouseNumber").text = house_number
-        SubElement(addr, "StreetName").text = street_name
-        SubElement(addr, "City").text = city
-        SubElement(addr, "StateCode").text = state_code
-        SubElement(addr, "Zip").text = zip_code
+        SubElement(addr, "HouseNumber").text = house_number.strip()
+        SubElement(addr, "StreetName").text = street_name.strip()
+        SubElement(addr, "City").text = city.strip()
+        SubElement(addr, "StateCode").text = state_code.strip().upper()
+        SubElement(addr, "Zip").text = zip_code.strip()
         SubElement(body, "LoaAuthorizingPerson").text = loa_authorizing_person
         _tn_list(body, "ListOfPhoneNumbers", "PhoneNumber", numbers)
         if losing_carrier_account_number:
@@ -445,7 +670,86 @@ def register_numbers_tools(mcp, config: dict) -> None:
         SubElement(body, "SiteId").text = site_id
         if peer_id:
             SubElement(body, "PeerId").text = peer_id
+        # Partial-port pair goes last, matching Bandwidth's documented example.
+        if partial_port:
+            SubElement(body, "PartialPort").text = "true"
+            SubElement(body, "NewBillingTelephoneNumber").text = _clean_tn(
+                new_billing_telephone_number
+            )
         return await _dashboard_send(config, "POST", "portins", body, account_id)
+
+    @mcp.tool(name="uploadPortInLoa", annotations=_WRITE)
+    async def upload_port_in_loa(
+        order_id: str,
+        file_base64: str,
+        filename: str,
+        document_type: str = "LOA",
+        content_type: str = "",
+        account_id: str = "",
+    ) -> dict:
+        """UPLOAD the signed LOA (or a supporting document) onto a port-in
+        order. A port-in sits in PENDING_DOCUMENTS until this lands, so this
+        is the step that actually gets the port moving.
+
+        The file arrives as base64: read the signed PDF, base64-encode it, and
+        pass the string. Bandwidth accepts pdf, tiff, jpeg, png, and txt.
+
+        Args:
+            order_id: The LNP order id (from createPortInOrder or
+                listPortInOrders).
+            file_base64: The document, base64-encoded.
+            filename: Original file name, e.g. "acme-loa.pdf" (its extension
+                picks the content type when content_type is not given).
+            document_type: LOA (default), INVOICE, CSR, or OTHER.
+            content_type: Optional MIME type override.
+            account_id: Optional account (see listAccounts).
+        """
+        doc_type = document_type.strip().upper() or "LOA"
+        if doc_type not in _DOCUMENT_TYPES:
+            raise ValueError(
+                f"document_type must be one of {', '.join(_DOCUMENT_TYPES)}, "
+                f"got {document_type!r}"
+            )
+        mime = content_type.strip()
+        if not mime:
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+            mime = _UPLOAD_TYPES.get(ext, "")
+            if not mime:
+                raise ValueError(
+                    f"Can't tell the file type from {filename!r}. Use a "
+                    f"{'/'.join(sorted(_UPLOAD_TYPES))} extension or pass "
+                    "content_type."
+                )
+        try:
+            content = base64.b64decode(file_base64, validate=True)
+        except Exception as exc:
+            raise ValueError(f"file_base64 is not valid base64: {exc}") from exc
+        if not content:
+            raise ValueError("file_base64 decoded to an empty file.")
+
+        uploaded = await _dashboard_upload(
+            config, f"portins/{order_id}/loas", content, mime, account_id
+        )
+        # Bandwidth names the stored file itself; the metadata PUT is what
+        # marks it as the LOA rather than an unclassified attachment.
+        stored = uploaded.get("id") or _uploaded_filename(uploaded)
+        if stored:
+            meta = Element("FileMetaData")
+            SubElement(meta, "DocumentType").text = doc_type
+            try:
+                uploaded["metadata"] = await _dashboard_send(
+                    config,
+                    "PUT",
+                    f"portins/{order_id}/loas/{stored}/metadata",
+                    meta,
+                    account_id,
+                )
+            except RuntimeError as exc:
+                # The file IS uploaded at this point; don't fail the tool over
+                # the classification step, report it so the agent can retry.
+                uploaded["metadataError"] = str(exc)
+            uploaded["filename"] = stored
+        return uploaded
 
     @mcp.tool(name="supplementPortInOrder", annotations=_WRITE)
     async def supplement_port_in_order(

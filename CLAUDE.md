@@ -38,6 +38,27 @@ delta on top:
 - **CI/CD deploy** via GitHub Actions + Workload Identity Federation. Never from
   a workstation.
 
+## Protocol version: 2026-07-28 (stateless)
+
+The server speaks the **2026-07-28** MCP revision and the handshake era at the
+same endpoint, negotiated per request. That revision deleted protocol sessions:
+no `initialize` handshake, no `Mcp-Session-Id`, every request self-describing
+through `_meta` (`io.modelcontextprotocol/protocolVersion`, `clientInfo`,
+`clientCapabilities`), plus a mandatory `server/discover` RPC that returns
+supported versions, capabilities, and identity in one call.
+
+This suits us: our tools are request/response with no server-initiated traffic,
+so nothing needed a live connection in the first place. `serve.py` passes
+`stateless_http=True` so handshake-era clients are sessionless too, and a
+container restart can no longer strand a client holding a session id.
+
+It rides on **fastmcp 4.0.0b1 + MCP Python SDK 2.0.0**, the first releases that
+implement the revision. 4.0.0b1 is a **beta**, pinned exactly and deliberately;
+`test/test_gateway.py` is the safety net that proves both eras still work.
+`src/app.py` also sets `cache_ttl`/`cache_scope`, which fill the revision's
+`ttlMs`/`cacheScope` hints so clients can hold the (startup-fixed) tool list
+instead of re-listing.
+
 ## Layout
 ```
 serve.py                 hosted OAuth 2.1 gateway in front of streamable-http (Phoneware)
@@ -80,6 +101,12 @@ through `mise`.
 pip install ".[dev]"          # deps + black/pytest/pytest-asyncio/pytest-httpx
 python -m pytest -q           # full suite (what CI gates on)
 ```
+Dependency pins live in **three** places that must move together:
+`pyproject.toml`, the `Dockerfile`'s `pip install`, and `cloudbuild.yaml`'s test
+step. The last two install by hand rather than from `pyproject.toml`, so a pin
+bumped in one place and not the others means CI tests one stack and Cloud Run
+ships another. `uv pip install` needs `--prerelease=allow` for the fastmcp beta;
+plain `pip` takes it from the exact `==4.0.0b1` pin.
 Run locally **from `src/`**, never `pip install .` the package: the upstream
 `pyproject.toml` omits some modules (e.g. `urls`), so an installed package
 can't import them. Upstream runs from `src/` and so do we.
@@ -133,6 +160,20 @@ call 401s, the client refreshes, and the mint re-runs. Bandwidth webhook
 callback routes stay open (Bandwidth can't present our bearer, and they deliver
 async events, not account control).
 
+Per the 2026-07-28 authorization spec:
+- **RFC 9207**: every authorization response carries `iss`, success or error,
+  and the AS metadata advertises
+  `authorization_response_iss_parameter_supported`.
+- **RFC 8707 resource indicators**: `resource` is validated at `/authorize` and
+  `/token` and bound into the issued token as `aud`. A foreign origin gets
+  `invalid_target` instead of a token. The check compares origin only, on
+  purpose: clients disagree about the `/mcp` path and trailing slashes, and
+  rejecting on that would break a working connector for no security gain.
+- **Dynamic Client Registration is not implemented and should stay that way.**
+  The revision deprecates DCR in favor of Client ID Metadata Documents anyway,
+  and neither fits this server: `client_id` here IS the Bandwidth API client id,
+  which is the whole authorization model.
+
 ## Uniform tool gating
 `app.py` builds all tool sources, then walks `list_tools()` and removes any tool
 that the env config (`BW_MCP_TOOLS` / `BW_MCP_PROFILE` / `BW_MCP_EXCLUDE_TOOLS`)
@@ -144,6 +185,16 @@ the single source of truth for the whole surface. Filter precedence lives in
 
 ## Gotchas worth knowing
 - **Run from `src/`, not an installed package** (see above).
+- **A modern request needs BOTH the `MCP-Protocol-Version` header and the full
+  `_meta` envelope.** Send the `_meta` version alone and the server quietly
+  answers in handshake-era shape (no `resultType`, no `ttlMs`, and
+  `server/discover` comes back "Method not found"); send the header without
+  `io.modelcontextprotocol/clientCapabilities` in `_meta` and you get a 400
+  naming the missing key. Both were mistaken for "FastMCP 4 has not implemented
+  discover yet" while writing `test/test_gateway.py`. It has.
+- **`Tools (0): None` at startup is not a failure.** That banner summarizes the
+  OpenAPI-derived surface, which is empty on the numbers/billing profile, and it
+  prints before the hand-written tools register. The live surface is 31 tools.
 - **Dashboard XML API paging**: `/portins`, `/portouts`, `/orders` 404 without
   explicit `page` + `size`. The hand-written tools always send them.
 - **`lnpchecker` wants E.164** (`+1NXXNXXXXXX`); every other Dashboard endpoint

@@ -35,6 +35,7 @@ Everything below is Phoneware's delta on top of upstream. This is "the changes".
 | Billing | none | async usage/billing reports engine (`src/tools/reports.py`) |
 | Accounts | first account only | multi-account: one client ID, `account_id` per tool, validated against the token claims |
 | Client UX | tools ungrouped ("Other") | read/write `ToolAnnotations` so clients group tools |
+| Protocol | whatever the pinned SDK spoke | MCP **2026-07-28** (stateless: no handshake, no session id, `server/discover`) plus the handshake era on the same endpoint, on fastmcp 4.0.0b1 + MCP SDK 2.0.0 |
 | Deploy | n/a | GitHub Actions + Workload Identity Federation, pytest-gated Cloud Build; never from a workstation |
 
 ## The deployed surface

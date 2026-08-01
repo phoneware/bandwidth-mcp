@@ -28,12 +28,24 @@ lifespan so it runs on FastMCP's event loop:
 lifespan, so Starlette has the Bandwidth webhook routes in its table before
 `mcp.run()`.
 
+The `FastMCP(...)` constructor also carries the 2026-07-28 bits: `version`
+(stamped into every result's `_meta` serverInfo, since no handshake announces
+identity any more) and `cache_ttl`/`cache_scope` (the `ttlMs`/`cacheScope` hints
+on list results). The tool surface is frozen at startup by the env filter, so
+letting clients cache it is safe; bump `SERVER_VERSION` when the surface
+changes.
+
 ## Tool sources
 
 ### OpenAPI-derived (`servers.py`)
 `api_server_info` lists Bandwidth's public specs. `_create_server()` fetches a
 spec, rewrites its server host via `swap_host()` (so `BW_ENVIRONMENT` and
 per-host overrides apply), and builds `FastMCP.from_openapi`. Two details matter:
+
+The client handed to the provider is an **httpx2** client: FastMCP 4 moved off
+httpx 0.x. Our own Dashboard calls and spec fetching stay on httpx, so both
+libraries are installed on purpose. Anything passed into FastMCP (clients, auth
+classes, event hooks) has to be httpx2.
 
 - **`_LiveConfigTokenAuth`** attaches the *current* `BW_ACCESS_TOKEN` from the
   shared config on every request instead of baking it into headers at startup.

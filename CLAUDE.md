@@ -131,6 +131,11 @@ them.
 | `netsapiens` | local stdio, `../netsapiens-mcp/build/index.js` | `NETSAPIENS_API_TOKEN`, or `NETSAPIENS_OAUTH_CLIENT_ID`/`_SECRET`/`_USERNAME`/`_PASSWORD`. `NETSAPIENS_API_URL` defaults to `https://edge.phoneware.cloud` |
 | `autotask` | local stdio, `../autotask-mcp/dist/index.js` | `AUTOTASK_USERNAME`, `AUTOTASK_SECRET`, `AUTOTASK_INTEGRATION_CODE` (starts read-only; set `AUTOTASK_READ_ONLY=false` to allow writes) |
 
+- **It is tracked on purpose**, via a `!.mcp.json` negation at the end of
+  `.gitignore`. Upstream ignores `.mcp.json` alongside `.DS_Store` as a personal
+  scratch file; ours is shared Phoneware config. Without the negation `git add`
+  skips it silently and only this doc section ships, which is exactly what
+  happened on the first attempt (PR #5).
 - **No secrets in this file.** Every credential is `${VAR}` expansion from the
   environment, with empty defaults so one missing var can't stop the other
   servers loading. The two stdio servers exit at startup without their creds

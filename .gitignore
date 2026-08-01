@@ -99,3 +99,9 @@ venv.bak/
 #  and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
+
+# Phoneware: this fork SHIPS a project MCP config (bandwidth, peplink,
+# netsapiens, autotask) so a session here can drive the whole stack. Upstream
+# ignores .mcp.json as a personal scratch file; ours carries no secrets (every
+# credential is ${VAR} expansion), so it is tracked on purpose.
+!.mcp.json

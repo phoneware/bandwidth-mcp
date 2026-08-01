@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "bandwidth": {
+      "type": "http",
+      "url": "https://mcp.bandwidth.phoneware.cloud/mcp"
+    },
+    "peplink": {
+      "type": "http",
+      "url": "https://mcp.peplink.phoneware.cloud/mcp"
+    },
+    "netsapiens": {
+      "command": "node",
+      "args": ["${PHONEWARE_SRC:-..}/netsapiens-mcp/build/index.js"],
+      "env": {
+        "NETSAPIENS_API_URL": "${NETSAPIENS_API_URL:-https://edge.phoneware.cloud}",
+        "NETSAPIENS_API_TOKEN": "${NETSAPIENS_API_TOKEN:-}",
+        "NETSAPIENS_OAUTH_CLIENT_ID": "${NETSAPIENS_OAUTH_CLIENT_ID:-}",
+        "NETSAPIENS_OAUTH_CLIENT_SECRET": "${NETSAPIENS_OAUTH_CLIENT_SECRET:-}",
+        "NETSAPIENS_OAUTH_USERNAME": "${NETSAPIENS_OAUTH_USERNAME:-}",
+        "NETSAPIENS_OAUTH_PASSWORD": "${NETSAPIENS_OAUTH_PASSWORD:-}"
+      }
+    },
+    "autotask": {
+      "command": "node",
+      "args": ["${PHONEWARE_SRC:-..}/autotask-mcp/dist/index.js"],
+      "env": {
+        "AUTOTASK_USERNAME": "${AUTOTASK_USERNAME:-}",
+        "AUTOTASK_SECRET": "${AUTOTASK_SECRET:-}",
+        "AUTOTASK_INTEGRATION_CODE": "${AUTOTASK_INTEGRATION_CODE:-}",
+        "AUTOTASK_READ_ONLY": "${AUTOTASK_READ_ONLY:-true}"
+      }
+    }
+  }
+}

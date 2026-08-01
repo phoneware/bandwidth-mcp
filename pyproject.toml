@@ -9,8 +9,13 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "httpx~=0.28.0",
-    "fastmcp~=3.2",
-    "mcp~=1.24",
+    "httpx2~=2.9",
+    # Pinned exactly: 4.0.0b1 is the first release speaking MCP 2026-07-28
+    # (stateless core, server/discover, subscriptions/listen) and it is still
+    # a beta. Move the pin deliberately, and keep Dockerfile + cloudbuild.yaml
+    # in lockstep — they install these pins by hand, not from this file.
+    "fastmcp==4.0.0b1",
+    "mcp>=2.0.0,<3",
     "pyyaml~=6.0.0",
     "werkzeug>=3.1.4"
 ]

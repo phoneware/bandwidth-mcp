@@ -36,6 +36,22 @@ instructions (`test_instructions`), host resolution (`test_urls`), the
 hand-written Numbers/Dashboard tools (`test_numbers`), and the hosted-mode
 safety gate (`test_hosted_safety`).
 
+`test_gateway.py` covers `serve.py` end to end: the real Starlette app driven
+through an ASGI transport with its lifespan running. OAuth metadata,
+authorize/token (including RFC 9207 `iss` and RFC 8707 resource indicators), the
+bearer gate, Bandwidth callbacks staying ungated, and MCP traffic over **both**
+protocol eras, including a raw 2026-07-28 request and `server/discover`. Two
+things it has to get right, and any new test here does too:
+
+- The lifespan owns anyio task groups, so it is entered and exited inside one
+  long-lived task (module-scoped fixture, `loop_scope="module"`), not across
+  fixture setup and teardown. Otherwise anyio raises "attempted to exit cancel
+  scope in a different task".
+- `serve.py` sets `BW_MCP_TRANSPORT` at import time. The module restores the
+  environment right after importing it: other test modules assert on the stdio
+  defaults (`setCredentials` is stdio-only) and pytest imports every test module
+  before running any test, so leaked env breaks them regardless of order.
+
 When adding a hand-written tool, add a test that asserts it registers under its
 profile and that its request shape matches the Bandwidth quirk it encodes
 (paging params, E.164 vs 10-digit, XML body structure).

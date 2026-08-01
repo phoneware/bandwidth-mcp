@@ -107,7 +107,22 @@ async def lifespan(mcp_instance: FastMCP):
     stop_tunnel()
 
 
-mcp = FastMCP(name="Bandwidth MCP", lifespan=lifespan)
+SERVER_VERSION = "0.4.0"
+
+# cache_ttl/cache_scope fill the 2026-07-28 `ttlMs`/`cacheScope` hints on
+# tools/list (and the other list results). Our tool surface is fixed at
+# startup by BW_MCP_PROFILE/BW_MCP_TOOLS and cannot change while the process
+# lives, so telling clients they may cache it for a few minutes cuts pointless
+# re-listing and helps their prompt caches hit. "private" keeps shared
+# intermediaries out of it: the surface is behind auth and the instructions
+# carry account context.
+mcp = FastMCP(
+    name="Bandwidth MCP",
+    version=SERVER_VERSION,
+    cache_ttl=300,
+    cache_scope="private",
+    lifespan=lifespan,
+)
 
 # Register callback HTTP routes at module level — must happen before mcp.run()
 # so Starlette includes them in the app's route table.

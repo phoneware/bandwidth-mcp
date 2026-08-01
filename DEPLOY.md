@@ -24,8 +24,17 @@ config, not on the server.
   stay open (they deliver async events, not account control).
 - Single-tenant: whoever holds Phoneware's Bandwidth creds gets Phoneware's
   account; there is no per-user identity at Bandwidth.
-- Stateful (in-memory event store + webhook callbacks + minted token):
-  `--min-instances=1`, `--max-instances=1` (do not scale to zero or fan out).
+- Authorization follows the 2026-07-28 MCP spec: `iss` on every authorization
+  response (RFC 9207) and `resource` indicators validated and bound into the
+  token audience (RFC 8707). DCR is deliberately absent, see `CLAUDE.md`.
+- **The MCP protocol is stateless** (2026-07-28: no handshake, no session id),
+  and handshake-era clients are served sessionlessly too. That removes session
+  affinity as a reason to pin one instance.
+- What still pins us to one instance is OUR state, not the protocol's: the
+  in-memory event store, the webhook callbacks, and the minted upstream token
+  all live in process memory, so `--min-instances=1`, `--max-instances=1`
+  stands (do not scale to zero or fan out). Moving the minted token to Secret
+  Manager or Firestore is what would lift that, and nothing here does it yet.
 
 ## Coverage note
 The live deployment runs the **numbers / porting / carrier / billing** surface

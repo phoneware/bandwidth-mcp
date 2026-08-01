@@ -155,6 +155,10 @@ async def as_metadata(request: Request):
                 "client_secret_post",
             ],
             "scopes_supported": ["bandwidth"],
+            # RFC 9207: we return `iss` on every authorization response, so
+            # clients can bind the code to the issuer they recorded. The
+            # 2026-07-28 MCP authorization spec has clients validating this.
+            "authorization_response_iss_parameter_supported": True,
         }
     )
 
@@ -165,8 +169,24 @@ async def resource_metadata(request: Request):
             "resource": _BASE,
             "authorization_servers": [_BASE],
             "bearer_methods_supported": ["header"],
+            "scopes_supported": ["bandwidth"],
+            "resource_name": "Bandwidth MCP (Phoneware)",
         }
     )
+
+
+def _resource_ok(resource: str) -> bool:
+    """RFC 8707 resource indicator check.
+
+    Clients name the MCP server they want a token for. We only reject a
+    clearly foreign origin: claude.ai and Claude Code disagree on whether the
+    indicator carries the /mcp path or a trailing slash, and rejecting on that
+    would break a working connector for no security gain."""
+    if not resource:
+        return True
+    u = urlparse(resource)
+    base = urlparse(_BASE)
+    return (u.scheme, u.hostname, u.port) == (base.scheme, base.hostname, base.port)
 
 
 async def authorize(request: Request):
@@ -176,13 +196,20 @@ async def authorize(request: Request):
         return PlainTextResponse("invalid redirect_uri", status_code=400)
     client_id = q.get("client_id", "")
     challenge = q.get("code_challenge", "")
+    resource = q.get("resource", "")
+    # `iss` rides on every response, success or error (RFC 9207).
     if (
         q.get("response_type") != "code"
         or not client_id
         or not challenge
         or q.get("code_challenge_method", "S256") != "S256"
+        or not _resource_ok(resource)
     ):
-        params = {"error": "invalid_request", **({"state": q["state"]} if q.get("state") else {})}
+        params = {
+            "error": "invalid_request",
+            "iss": _BASE,
+            **({"state": q["state"]} if q.get("state") else {}),
+        }
         return RedirectResponse(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(params)}", status_code=302)
     code = _sign(
         {
@@ -191,10 +218,15 @@ async def authorize(request: Request):
             "cid": client_id,
             "ru": redirect_uri,
             "cc": challenge,
+            "res": resource,
             "n": _secrets.token_hex(8),
         }
     )
-    params = {"code": code, **({"state": q["state"]} if q.get("state") else {})}
+    params = {
+        "code": code,
+        "iss": _BASE,
+        **({"state": q["state"]} if q.get("state") else {}),
+    }
     return RedirectResponse(f"{redirect_uri}{'&' if '?' in redirect_uri else '?'}{urlencode(params)}", status_code=302)
 
 
@@ -211,10 +243,11 @@ def _client_auth(request: Request, form) -> tuple[str, str]:
     return form.get("client_id", ""), form.get("client_secret", "")
 
 
-def _issue_tokens(client_id: str) -> JSONResponse:
+def _issue_tokens(client_id: str, resource: str = "") -> JSONResponse:
     now = time.time()
-    at = _sign({"typ": "at", "exp": now + _ACCESS_TTL, "cid": client_id})
-    rt = _sign({"typ": "rt", "exp": now + _REFRESH_TTL, "cid": client_id})
+    aud = {"aud": resource} if resource else {}
+    at = _sign({"typ": "at", "exp": now + _ACCESS_TTL, "cid": client_id, **aud})
+    rt = _sign({"typ": "rt", "exp": now + _REFRESH_TTL, "cid": client_id, **aud})
     return JSONResponse(
         {
             "access_token": at,
@@ -237,6 +270,10 @@ async def token(request: Request):
     if not client_id or not client_secret:
         return _token_error("invalid_client", 401)
     grant = form.get("grant_type", "")
+    # RFC 8707: the client names the MCP server it wants this token for.
+    resource = form.get("resource", "")
+    if not _resource_ok(resource):
+        return _token_error("invalid_target")
 
     if grant == "authorization_code":
         payload = _verify(form.get("code", ""), "code")
@@ -257,11 +294,18 @@ async def token(request: Request):
         await _mint_upstream(client_id, client_secret)
     except RuntimeError:
         return _token_error("invalid_client", 401)
-    return _issue_tokens(client_id)
+    return _issue_tokens(client_id, resource or payload.get("res", "") or payload.get("aud", ""))
 
 
 # ── MCP gate ────────────────────────────────────────────────────────────────
-_inner = mcp.http_app()  # serves /mcp + Bandwidth callback routes
+# 2026-07-28 requests are sessionless by protocol (no initialize handshake, no
+# Mcp-Session-Id) whatever this flag says. stateless_http=True extends the same
+# treatment to handshake-era clients, so every POST from every era is
+# self-contained. That matches what this server is: request/response tools with
+# no server-initiated traffic, nothing that needs a live connection. It also
+# means a container restart no longer leaves a client holding a session id the
+# server has never heard of.
+_inner = mcp.http_app(stateless_http=True)  # serves /mcp + Bandwidth callbacks
 
 
 async def gated(scope, receive, send):

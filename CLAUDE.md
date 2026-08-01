@@ -119,6 +119,35 @@ BW_GATEWAY_TOKEN=$(openssl rand -hex 32) BW_MCP_TRANSPORT=streamable-http \
   PYTHONPATH=src python serve.py
 ```
 
+## Phoneware MCP servers in this project (`.mcp.json`)
+Project-scoped MCP servers for the four Phoneware MCPs, so a session here can
+drive the whole stack. Claude Code asks for approval the first time it loads
+them.
+
+| Server | How it runs | What it needs |
+|---|---|---|
+| `bandwidth` | hosted, `https://mcp.bandwidth.phoneware.cloud/mcp` | OAuth; the client id/secret ARE the Bandwidth API creds |
+| `peplink` | hosted, `https://mcp.peplink.phoneware.cloud/mcp` | OAuth with DCR (`/register`), so the client registers itself |
+| `netsapiens` | local stdio, `../netsapiens-mcp/build/index.js` | `NETSAPIENS_API_TOKEN`, or `NETSAPIENS_OAUTH_CLIENT_ID`/`_SECRET`/`_USERNAME`/`_PASSWORD`. `NETSAPIENS_API_URL` defaults to `https://edge.phoneware.cloud` |
+| `autotask` | local stdio, `../autotask-mcp/dist/index.js` | `AUTOTASK_USERNAME`, `AUTOTASK_SECRET`, `AUTOTASK_INTEGRATION_CODE` (starts read-only; set `AUTOTASK_READ_ONLY=false` to allow writes) |
+
+- **No secrets in this file.** Every credential is `${VAR}` expansion from the
+  environment, with empty defaults so one missing var can't stop the other
+  servers loading. The two stdio servers exit at startup without their creds
+  (verified: both refuse with a clear message), so they show as failed until
+  the vars are exported.
+- **Sibling checkouts.** The stdio entries resolve through
+  `${PHONEWARE_SRC:-..}`, which assumes the go-style layout
+  (`~/dev/src/github.com/phoneware/*`). Set `PHONEWARE_SRC` if yours differs.
+  `autotask-mcp` needs `npm install && npm run build` once; `dist/` is
+  gitignored.
+- **The `bandwidth` entry is the awkward one.** Our gateway deliberately has no
+  DCR endpoint (`client_id` IS the Bandwidth client id, see the OAuth model
+  below), while peplink's advertises `/register`. A client that expects to
+  self-register has nothing to register against here, so the claude.ai
+  connector, with its explicit Client ID/Secret fields, is still the supported
+  path for the Bandwidth server.
+
 ## Deploy (CI only, never from a workstation)
 Push to `main` triggers `.github/workflows/deploy.yml`, which authenticates to
 `phoneware-edge` via **Workload Identity Federation** (SA

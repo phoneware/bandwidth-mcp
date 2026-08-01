@@ -4,7 +4,7 @@ from xml.etree.ElementTree import fromstring
 
 from src.tools.numbers import _xml_to_data
 from src.server_utils import create_route_map_fn
-from fastmcp.server.openapi import MCPType
+from fastmcp.server.providers.openapi import MCPType
 
 
 def test_xml_to_data_repeated_tags_become_lists():

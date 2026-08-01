@@ -18,7 +18,10 @@ steps:
       - -c
       - |
         set -e
-        pip install --no-cache-dir "fastmcp~=3.2" "mcp~=1.24" "httpx~=0.28.0" \
+        # Pins must match pyproject.toml and the Dockerfile. fastmcp 4.0.0b1 is
+        # the MCP 2026-07-28 (stateless) release, still a beta, hence the exact pin.
+        pip install --no-cache-dir "fastmcp==4.0.0b1" "mcp>=2.0.0,<3" \
+          "httpx~=0.28.0" "httpx2~=2.9" \
           "pyyaml~=6.0.0" "werkzeug>=3.1.4" uvicorn pytest pytest-asyncio pytest-httpx
         python -m pytest -q
 

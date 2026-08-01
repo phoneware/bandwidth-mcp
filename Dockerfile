@@ -13,10 +13,15 @@ ENV PYTHONUNBUFFERED=1 \
 # src modules (e.g. `urls`), so the installed package fails to import. Upstream
 # runs from the src/ tree directly (`python src/app.py`); we do the same: install
 # the pinned deps, then run from the complete src/ dir via PYTHONPATH.
+# Keep these pins identical to pyproject.toml and cloudbuild.yaml's test step.
+# fastmcp 4.0.0b1 is the MCP 2026-07-28 (stateless) release and is a beta, so
+# the exact pin is deliberate; pip installs a pre-release when it is pinned
+# exactly like this.
 RUN pip install \
-      "fastmcp~=3.2" \
-      "mcp~=1.24" \
+      "fastmcp==4.0.0b1" \
+      "mcp>=2.0.0,<3" \
       "httpx~=0.28.0" \
+      "httpx2~=2.9" \
       "pyyaml~=6.0.0" \
       "werkzeug>=3.1.4" \
       "uvicorn"

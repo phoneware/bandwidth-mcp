@@ -3,7 +3,9 @@ from pathlib import Path
 import specs
 
 from fastmcp import FastMCP
-from httpx import AsyncClient, Auth
+# httpx2: FastMCP 4's OpenAPI provider takes an httpx2 client (the SDK moved
+# off httpx 0.x). Our own Dashboard/spec calls stay on httpx.
+from httpx2 import AsyncClient, Auth
 from mcp.types import ToolAnnotations
 from typing import Dict, List, Optional, Callable, Any
 

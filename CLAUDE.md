@@ -146,12 +146,33 @@ them.
   (`~/dev/src/github.com/phoneware/*`). Set `PHONEWARE_SRC` if yours differs.
   `autotask-mcp` needs `npm install && npm run build` once; `dist/` is
   gitignored.
-- **The `bandwidth` entry is the awkward one.** Our gateway deliberately has no
-  DCR endpoint (`client_id` IS the Bandwidth client id, see the OAuth model
-  below), while peplink's advertises `/register`. A client that expects to
-  self-register has nothing to register against here, so the claude.ai
-  connector, with its explicit Client ID/Secret fields, is still the supported
-  path for the Bandwidth server.
+- **The `bandwidth` entry needs one extra command per machine.** Claude Code's
+  automatic OAuth requires Dynamic Client Registration, and this gateway
+  deliberately has none (`client_id` IS the Bandwidth client id, see the OAuth
+  model below). Connecting without creds fails with *"Incompatible auth server:
+  does not support dynamic client registration"*. Hand it the creds instead:
+  ```
+  claude mcp add --transport http --scope local \
+    --client-id "$BW_CLIENT_ID" --client-secret \
+    bandwidth https://mcp.bandwidth.phoneware.cloud/mcp
+  ```
+  `--client-secret` prompts for it (or reads `MCP_CLIENT_SECRET`) and stores it
+  in Claude Code's local config, never in the repo. A local entry shadows the
+  project entry of the same name (verified), so `.mcp.json` keeps documenting
+  the endpoint for everyone while creds stay per-operator. The flow itself is
+  verified against production: `/authorize` returns a code carrying `iss`, and
+  `/token` validates the pair against Bandwidth, so a fake pair gets
+  `invalid_client`.
+  peplink's server advertises `/register` and self-registers, so it needs none
+  of this; claude.ai's connector UI has its own Client ID/Secret fields and
+  needs none of it either.
+- **Supporting Claude Code's automatic flow would mean redesigning the auth
+  model**, not adding an endpoint. DCR hands the client an id/secret that WE
+  mint, but this server holds no Bandwidth creds of its own to act on: the
+  client's creds ARE the authorization. Supporting it means collecting them at
+  `/authorize` behind a real login page and carrying them in an encrypted
+  refresh token (roughly what `netsapiens-mcp` does). That is a deliberate
+  security change, not a config tweak.
 
 ## Deploy (CI only, never from a workstation)
 Push to `main` triggers `.github/workflows/deploy.yml`, which authenticates to

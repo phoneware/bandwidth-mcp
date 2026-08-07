@@ -186,10 +186,10 @@ def test_port_in_validates_formats():
 
 
 def test_port_in_partial_port_rules():
-    # partial port without the TN that stays behind
+    # the BTN is itself porting, so the remainder needs a replacement BTN
     assert any(
         "new_billing_telephone_number" in p
-        for p in _problems(numbers=["9195550001"], partial_port=True)
+        for p in _problems(numbers=["9195550000", "9195550001"], partial_port=True)
     )
     # the new BTN cannot be one of the numbers leaving
     assert any(
@@ -200,20 +200,33 @@ def test_port_in_partial_port_rules():
             new_billing_telephone_number="9195550001",
         )
     )
+    # nor can it be the BTN itself: that TN is staying and stays the BTN
+    # (Bandwidth 7497)
+    assert any(
+        "must differ from" in p
+        for p in _problems(
+            numbers=["9195550001"],
+            partial_port=True,
+            new_billing_telephone_number="9195550000",
+        )
+    )
     # the flag has to be set explicitly
     assert any(
         "partial_port" in p
-        for p in _problems(new_billing_telephone_number="9195550000")
+        for p in _problems(new_billing_telephone_number="9195550002")
     )
     # a full port has to carry the BTN
     assert any(
         "not in numbers" in p for p in _problems(numbers=["9195550001"])
     )
+    # the BTN stays and is not porting: no replacement BTN, and that is complete
+    assert _problems(numbers=["9195550001"], partial_port=True) == []
+    # the BTN ports and a different staying TN takes over as BTN
     assert (
         _problems(
-            numbers=["9195550001"],
+            numbers=["9195550000", "9195550001"],
             partial_port=True,
-            new_billing_telephone_number="9195550000",
+            new_billing_telephone_number="9195550002",
         )
         == []
     )
@@ -262,17 +275,63 @@ async def test_create_port_in_emits_partial_port_pair(monkeypatch):
     async with Client(mcp) as client:
         await client.call_tool("createPortInOrder", {
             **_GOOD_PORT_IN,
-            "numbers": ["9195550001"],
+            # the BTN ports too, so a different staying TN becomes the new BTN
+            "numbers": ["9195550000", "9195550001"],
             "partial_port": True,
-            "new_billing_telephone_number": "+1 (919) 555-0000",
+            "new_billing_telephone_number": "+1 (919) 555-0002",
             "customer_order_id": "TICKET-42",
             "state_code": "az",
         })
     xml = sent["xml"]
     assert "<PartialPort>true</PartialPort>" in xml
-    assert "<NewBillingTelephoneNumber>+19195550000</NewBillingTelephoneNumber>" in xml
+    assert "<NewBillingTelephoneNumber>+19195550002</NewBillingTelephoneNumber>" in xml
     assert "<CustomerOrderId>TICKET-42</CustomerOrderId>" in xml
     assert "<StateCode>AZ</StateCode>" in xml
+
+
+@pytest.mark.asyncio
+async def test_partial_port_omits_new_btn_when_the_btn_is_not_porting(monkeypatch):
+    """The common internal port: some numbers move, the BTN stays. There is no
+    replacement BTN, and naming one earns Bandwidth error 7497
+    ("NewBillingTelephoneNumber cannot be the same as the
+    BillingTelephoneNumber")."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("createPortInOrder", {
+            **_GOOD_PORT_IN,
+            "billing_telephone_number": "9195550000",   # stays behind
+            "numbers": ["9195550001", "9195550002"],    # BTN not among them
+            "partial_port": True,
+        })
+    xml = sent["xml"]
+    assert "<PartialPort>true</PartialPort>" in xml
+    assert "NewBillingTelephoneNumber" not in xml
+
+
+@pytest.mark.asyncio
+async def test_rejects_a_new_btn_equal_to_the_btn(monkeypatch):
+    """Caught before it reaches Bandwidth, with the fix stated."""
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+    async with Client(mcp) as client:
+        with pytest.raises(Exception) as err:
+            await client.call_tool("createPortInOrder", {
+                **_GOOD_PORT_IN,
+                "billing_telephone_number": "9195550000",
+                "numbers": ["9195550001"],
+                "partial_port": True,
+                "new_billing_telephone_number": "9195550000",
+            })
+    assert "must differ from" in str(err.value)
 
 
 @pytest.mark.asyncio
@@ -323,16 +382,17 @@ async def test_create_port_in_sends_every_number_in_e164(monkeypatch):
         await client.call_tool("createPortInOrder", {
             **_GOOD_PORT_IN,
             "billing_telephone_number": "(919) 555-0000",
-            "numbers": ["9195550001", "+1 919 555 0002"],
+            # BTN ports too, so a third staying TN becomes the new BTN
+            "numbers": ["9195550000", "9195550001", "+1 919 555 0002"],
             "partial_port": True,
-            "new_billing_telephone_number": "9195550000",
+            "new_billing_telephone_number": "919.555.0003",
         })
     xml = sent["xml"]
     assert "<BillingTelephoneNumber>+19195550000</BillingTelephoneNumber>" in xml
     assert "<PhoneNumber>+19195550001</PhoneNumber>" in xml
     # already-E.164 input must not end up double-prefixed
     assert "<PhoneNumber>+19195550002</PhoneNumber>" in xml
-    assert "<NewBillingTelephoneNumber>+19195550000</NewBillingTelephoneNumber>" in xml
+    assert "<NewBillingTelephoneNumber>+19195550003</NewBillingTelephoneNumber>" in xml
     # nothing bare slipped through
     assert ">9195550" not in xml
 

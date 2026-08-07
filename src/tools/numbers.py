@@ -290,11 +290,16 @@ def _port_in_problems(
 
     btn = _clean_tn(billing_telephone_number)
     new_btn = _clean_tn(new_billing_telephone_number)
-    if partial_port and not new_btn:
+    # A replacement BTN is only meaningful when the BTN itself is porting: the
+    # remaining account has lost its billing number and needs another. When the
+    # BTN stays, it simply remains the BTN, and Bandwidth rejects being told
+    # otherwise ("NewBillingTelephoneNumber cannot be the same as the
+    # BillingTelephoneNumber", error 7497).
+    if partial_port and btn in ported and not new_btn:
         problems.append(
-            "new_billing_telephone_number: required on a partial port — the TN "
-            "that stays with the losing carrier and becomes the BTN on what is "
-            "left of that account"
+            "new_billing_telephone_number: required when the BTN itself is "
+            "porting — the TN that stays with the losing carrier and becomes "
+            "the BTN on what is left of that account"
         )
     if new_btn and not partial_port:
         problems.append(
@@ -304,6 +309,12 @@ def _port_in_problems(
         problems.append(
             "new_billing_telephone_number must be a number staying with the "
             "losing carrier, not one of the numbers being ported"
+        )
+    if new_btn and new_btn == btn:
+        problems.append(
+            "new_billing_telephone_number must differ from "
+            "billing_telephone_number: the BTN is not porting, so it stays the "
+            "BTN. Leave new_billing_telephone_number empty."
         )
     if btn and ported and not partial_port and btn not in ported:
         problems.append(
@@ -624,10 +635,15 @@ def register_numbers_tools(mcp, config: dict) -> None:
             pin: PIN/passcode with the losing carrier, if any.
             partial_port: True when only some of the losing account's numbers
                 are porting.
-            new_billing_telephone_number: On a partial port, the TN that stays
-                with the losing carrier and becomes its new BTN.
+            new_billing_telephone_number: Only when the BTN is itself porting:
+                the TN that stays with the losing carrier and becomes its new
+                BTN. Leave empty when the BTN is not in `numbers` — it stays
+                the BTN, and passing it here is rejected.
             customer_order_id: Optional reference of yours, echoed back on the
                 order (useful for tying a port to a customer ticket).
+                Alphanumeric, dashes and spaces only, max 255 — a dotted
+                ticket number like T20260806.0030 has to become
+                T20260806-0030.
             account_id: Optional account (see listAccounts).
         """
         problems = _port_in_problems(
@@ -690,11 +706,14 @@ def register_numbers_tools(mcp, config: dict) -> None:
         if peer_id:
             SubElement(body, "PeerId").text = peer_id
         # Partial-port pair goes last, matching Bandwidth's documented example.
+        # NewBillingTelephoneNumber only rides along when the BTN is porting and
+        # the remainder needs a new one; sending it otherwise is a 7497.
         if partial_port:
             SubElement(body, "PartialPort").text = "true"
-            SubElement(body, "NewBillingTelephoneNumber").text = _e164_tn(
-                new_billing_telephone_number
-            )
+            if _clean_tn(new_billing_telephone_number):
+                SubElement(body, "NewBillingTelephoneNumber").text = _e164_tn(
+                    new_billing_telephone_number
+                )
         return await _dashboard_send(config, "POST", "portins", body, account_id)
 
     @mcp.tool(name="uploadPortInLoa", annotations=_WRITE)

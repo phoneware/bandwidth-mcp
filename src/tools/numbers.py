@@ -562,6 +562,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         last_name: str = "",
         house_number: str = "",
         street_name: str = "",
+        address_line_2: str = "",
         city: str = "",
         state_code: str = "",
         zip_code: str = "",
@@ -602,6 +603,10 @@ def register_numbers_tools(mcp, config: dict) -> None:
             last_name: Residential subscriber last name.
             house_number: Service address house number (required).
             street_name: Service address street (required).
+            address_line_2: Secondary unit exactly as the losing carrier's
+                record shows it (e.g. "Suite 130", "Apt 4B"). Optional, but
+                send it when the CSR has one — a missing unit is a common
+                address-mismatch rejection.
             city: Service address city (required).
             state_code: Service address two-letter state (required).
             zip_code: Service address ZIP or ZIP+4 (required).
@@ -658,6 +663,10 @@ def register_numbers_tools(mcp, config: dict) -> None:
         addr = SubElement(subscriber, "ServiceAddress")
         SubElement(addr, "HouseNumber").text = house_number.strip()
         SubElement(addr, "StreetName").text = street_name.strip()
+        # Bandwidth's ServiceAddress schema puts the secondary unit between the
+        # street and the city; out of order it is silently dropped.
+        if address_line_2.strip():
+            SubElement(addr, "AddressLine2").text = address_line_2.strip()
         SubElement(addr, "City").text = city.strip()
         SubElement(addr, "StateCode").text = state_code.strip().upper()
         SubElement(addr, "Zip").text = zip_code.strip()

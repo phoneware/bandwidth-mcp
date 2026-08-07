@@ -274,6 +274,34 @@ async def test_create_port_in_emits_partial_port_pair(monkeypatch):
     assert "<StateCode>AZ</StateCode>" in xml
 
 
+@pytest.mark.asyncio
+async def test_create_port_in_sends_address_line_2_between_street_and_city(monkeypatch):
+    """A CSR's secondary unit ("Suite 130") has to reach Bandwidth, and has to
+    sit between StreetName and City — elsewhere in ServiceAddress it is
+    silently dropped and the port fails an address match nobody can see."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("createPortInOrder", {
+            **_GOOD_PORT_IN, "address_line_2": "  Suite 130  "})
+    xml = sent["xml"]
+    assert "<AddressLine2>Suite 130</AddressLine2>" in xml
+    assert xml.index("<StreetName>") < xml.index("<AddressLine2>") < xml.index("<City>")
+
+    # omitted entirely when there is no secondary unit, rather than sent empty
+    async with Client(mcp) as client:
+        await client.call_tool("createPortInOrder", {**_GOOD_PORT_IN})
+    assert "AddressLine2" not in sent["xml"]
+
+
 # ── LOA upload ──────────────────────────────────────────────────────────────
 
 

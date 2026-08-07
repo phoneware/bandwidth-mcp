@@ -87,7 +87,8 @@ async def test_write_tools_build_correct_escaped_xml(monkeypatch):
             "business_name": "Phoneware", "house_number": "1", "street_name": "Main",
             "city": "Phoenix", "state_code": "AZ", "zip_code": "85001"})
         assert sent["path"] == "portins"
-        assert "<BillingTelephoneNumber>9195550000</BillingTelephoneNumber>" in sent["xml"]
+        # /portins takes E.164, unlike orders/disconnects above
+        assert "<BillingTelephoneNumber>+19195550000</BillingTelephoneNumber>" in sent["xml"]
         assert "<SubscriberType>BUSINESS</SubscriberType>" in sent["xml"]
 
         await client.call_tool("cancelPortInOrder", {"order_id": "ord-9"})
@@ -269,7 +270,7 @@ async def test_create_port_in_emits_partial_port_pair(monkeypatch):
         })
     xml = sent["xml"]
     assert "<PartialPort>true</PartialPort>" in xml
-    assert "<NewBillingTelephoneNumber>9195550000</NewBillingTelephoneNumber>" in xml
+    assert "<NewBillingTelephoneNumber>+19195550000</NewBillingTelephoneNumber>" in xml
     assert "<CustomerOrderId>TICKET-42</CustomerOrderId>" in xml
     assert "<StateCode>AZ</StateCode>" in xml
 
@@ -300,6 +301,84 @@ async def test_create_port_in_sends_address_line_2_between_street_and_city(monke
     async with Client(mcp) as client:
         await client.call_tool("createPortInOrder", {**_GOOD_PORT_IN})
     assert "AddressLine2" not in sent["xml"]
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_sends_every_number_in_e164(monkeypatch):
+    """/portins rejects bare 10-digit numbers outright: "TelephoneNumber
+    '6022545515' is in an invalid format. Retry request with all E.164
+    formatted phone numbers." Every TN on the order has to carry +1, including
+    the BTN and the partial-port replacement BTN."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("createPortInOrder", {
+            **_GOOD_PORT_IN,
+            "billing_telephone_number": "(919) 555-0000",
+            "numbers": ["9195550001", "+1 919 555 0002"],
+            "partial_port": True,
+            "new_billing_telephone_number": "9195550000",
+        })
+    xml = sent["xml"]
+    assert "<BillingTelephoneNumber>+19195550000</BillingTelephoneNumber>" in xml
+    assert "<PhoneNumber>+19195550001</PhoneNumber>" in xml
+    # already-E.164 input must not end up double-prefixed
+    assert "<PhoneNumber>+19195550002</PhoneNumber>" in xml
+    assert "<NewBillingTelephoneNumber>+19195550000</NewBillingTelephoneNumber>" in xml
+    # nothing bare slipped through
+    assert ">9195550" not in xml
+
+
+@pytest.mark.asyncio
+async def test_check_portability_still_sends_e164(monkeypatch):
+    """checkPortability shares _e164_tn now; it must not regress."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        sent["path"] = path
+        return {"httpStatus": 200}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("checkPortability", {"numbers": ["9195550001", "+19195550002"]})
+    assert "<Tn>+19195550001</Tn>" in sent["xml"]
+    assert "<Tn>+19195550002</Tn>" in sent["xml"]
+
+
+@pytest.mark.asyncio
+async def test_other_endpoints_still_send_bare_ten_digits(monkeypatch):
+    """Only the two LNP endpoints take E.164. Orders and disconnects must keep
+    the bare form, or this fix trades one 400 for another."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "o1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("orderPhoneNumbers", {
+            "numbers": ["+1 (919) 555-1234"], "site_id": "s1", "order_name": "o"})
+        assert "<TelephoneNumber>9195551234</TelephoneNumber>" in sent["xml"]
+
+        await client.call_tool("disconnectPhoneNumbers", {
+            "numbers": ["9195551234"], "order_name": "cleanup"})
+        assert "<TelephoneNumber>9195551234</TelephoneNumber>" in sent["xml"]
 
 
 # ── LOA upload ──────────────────────────────────────────────────────────────

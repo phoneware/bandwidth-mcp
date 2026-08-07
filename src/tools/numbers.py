@@ -181,10 +181,24 @@ def _clean_tn(value) -> str:
     return digits
 
 
-def _tn_list(parent: Element, wrapper: str, tag: str, numbers: list) -> None:
+def _e164_tn(value) -> str:
+    """E.164 form (+1NXXNXXXXXX).
+
+    Two Dashboard endpoints reject bare 10-digit numbers outright: /lnpchecker
+    and /portins, both with "Retry request with all E.164 formatted phone
+    numbers". Everything else wants the bare form, so this is deliberately a
+    second helper rather than a change to _clean_tn."""
+    digits = "".join(ch for ch in str(value) if ch.isdigit())
+    if len(digits) == 10:
+        digits = "1" + digits
+    return "+" + digits
+
+
+def _tn_list(parent: Element, wrapper: str, tag: str, numbers: list, e164: bool = False) -> None:
     lst = SubElement(parent, wrapper)
+    fmt = _e164_tn if e164 else _clean_tn
     for n in numbers:
-        SubElement(lst, tag).text = _clean_tn(n)
+        SubElement(lst, tag).text = fmt(n)
 
 
 _ZIP_RE = re.compile(r"^\d{5}(-?\d{4})?$")
@@ -484,16 +498,10 @@ def register_numbers_tools(mcp, config: dict) -> None:
             numbers: Telephone numbers to check (10-digit).
             account_id: Optional account (see listAccounts).
         """
-        # lnpchecker is the one Dashboard endpoint that requires E.164
-        # ("Retry request with all E.164 formatted phone numbers"); the rest
-        # of the API wants bare 10-digit.
+        # lnpchecker is one of the two LNP endpoints requiring E.164 (see
+        # _e164_tn); the rest of the Dashboard API wants bare 10-digit.
         body = Element("NumberPortabilityRequest")
-        lst = SubElement(body, "TnList")
-        for n in numbers:
-            digits = "".join(ch for ch in str(n) if ch.isdigit())
-            if len(digits) == 10:
-                digits = "1" + digits
-            SubElement(lst, "Tn").text = "+" + digits
+        _tn_list(body, "TnList", "Tn", numbers, e164=True)
         return await _dashboard_send(
             config, "POST", "lnpchecker?fullCheck=true", body, account_id
         )
@@ -649,7 +657,9 @@ def register_numbers_tools(mcp, config: dict) -> None:
             SubElement(body, "CustomerOrderId").text = customer_order_id
         if requested_foc_date:
             SubElement(body, "RequestedFocDate").text = requested_foc_date.strip()
-        SubElement(body, "BillingTelephoneNumber").text = _clean_tn(
+        # /portins rejects bare 10-digit numbers ("Retry request with all E.164
+        # formatted phone numbers"), unlike the rest of the Dashboard API.
+        SubElement(body, "BillingTelephoneNumber").text = _e164_tn(
             billing_telephone_number
         )
         subscriber = SubElement(body, "Subscriber")
@@ -671,7 +681,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         SubElement(addr, "StateCode").text = state_code.strip().upper()
         SubElement(addr, "Zip").text = zip_code.strip()
         SubElement(body, "LoaAuthorizingPerson").text = loa_authorizing_person
-        _tn_list(body, "ListOfPhoneNumbers", "PhoneNumber", numbers)
+        _tn_list(body, "ListOfPhoneNumbers", "PhoneNumber", numbers, e164=True)
         if losing_carrier_account_number:
             SubElement(body, "AccountNumber").text = losing_carrier_account_number
         if pin:
@@ -682,7 +692,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         # Partial-port pair goes last, matching Bandwidth's documented example.
         if partial_port:
             SubElement(body, "PartialPort").text = "true"
-            SubElement(body, "NewBillingTelephoneNumber").text = _clean_tn(
+            SubElement(body, "NewBillingTelephoneNumber").text = _e164_tn(
                 new_billing_telephone_number
             )
         return await _dashboard_send(config, "POST", "portins", body, account_id)

@@ -80,12 +80,12 @@ not exposed. The surface is set in `cloudbuild.yaml`, see `CLAUDE.md`.
    ```
    https://mcp.bandwidth.phoneware.cloud/auth/google/callback
    ```
-   Record the client id and secret. Then publish the id (it is not a secret)
-   and store the secret:
+   Both halves go into Secret Manager. The id is not secret, but keeping the
+   pair together means one place to look and one place to rotate; splitting it
+   across GCP and a CI variable just creates two ways to half-configure the gate.
    ```
-   gh variable set BW_OAUTH_CLIENT_ID --repo phoneware/bandwidth-mcp --body '<client-id>'
-   printf %s '<client-secret>' | gcloud secrets create bandwidth-mcp-google-secret \
-     --data-file=- --project=phoneware-edge
+   printf %s '<client-id>'     | gcloud secrets create bandwidth-mcp-google-client-id --data-file=- --project=phoneware-edge
+   printf %s '<client-secret>' | gcloud secrets create bandwidth-mcp-google-secret    --data-file=- --project=phoneware-edge
    ```
 2. **Bandwidth API creds.** Create/obtain the Bandwidth API `client_id` +
    `client_secret` (Bandwidth Dashboard). They go in **Secret Manager and
@@ -103,7 +103,11 @@ not exposed. The surface is set in `cloudbuild.yaml`, see `CLAUDE.md`.
    ```
 4. **Artifact Registry repo** `bandwidth-mcp` (us-central1), if not present.
 5. Grant the Cloud Run runtime SA `roles/secretmanager.secretAccessor` on all
-   four secrets.
+   five secrets (`bandwidth-gateway-token`, `bandwidth-client-id`,
+   `bandwidth-client-secret`, `bandwidth-mcp-google-client-id`,
+   `bandwidth-mcp-google-secret`). Nothing credential-shaped is configured in
+   GitHub; a missing secret fails the Cloud Run deploy rather than shipping a
+   half-open gate.
 6. **Who may sign in** is `BW_OAUTH_ALLOWED_DOMAINS` in `cloudbuild.yaml`
    (`phoneware.us`). Add a named outside collaborator with
    `BW_OAUTH_ALLOWED_EMAILS` rather than widening the domain list.

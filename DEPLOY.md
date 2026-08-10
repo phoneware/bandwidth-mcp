@@ -3,30 +3,56 @@
 Vendored fork of the official [`Bandwidth/mcp-server`](https://github.com/Bandwidth/mcp-server)
 (Bandwidth ships it as a self-run Beta package; there is no Bandwidth-hosted
 version). We run it single-tenant on Cloud Run in `streamable-http` mode behind
-an OAuth 2.1 gate; the Bandwidth API creds live in the client's connector
-config, not on the server.
+an OAuth 2.1 gate, with **Google sign-in** as the identity check. The Bandwidth
+API credential lives on the server, in Secret Manager, and nowhere else.
 
 ## Architecture / security
 - `serve.py` is an **OAuth 2.1 authorization server** in front of the
-  streamable-http transport. Bandwidth's API creds are server-to-server with no
-  user auth of their own, so they are NOT preloaded here; they live in the
-  client's connector config (claude.ai custom connector Client ID/Secret
-  fields) and only transit `/token`, where the server validates them by
-  minting an upstream Bandwidth token with them. Success mints the upstream
-  token into process memory and issues our own short-lived signed bearer
-  (+ refresh token). A leaked URL grants nothing: `/authorize` auto-approves
-  but its codes are worthless without the creds.
+  streamable-http transport, and an **OAuth 2.0 client to Google** behind it.
+- **The Bandwidth credential is the carrier account.** It is a
+  `client_credentials` pair with no user auth of its own: an exchange with it
+  needs no login and returns a token carrying Porting, Ordering, Number
+  Activation, Billing Reports, Configuration and Regulatory across every
+  account on it. Whoever holds it can port numbers away or submit disconnects.
+  It therefore lives **only** in Secret Manager (`bandwidth-client-id`,
+  `bandwidth-client-secret`), mounted into this service. Never in a repo, a
+  connector field, or a plugin. It is never sent to a client.
+- **Google is the gate, not the credential.** Bandwidth has no per-user
+  identity, so Google's only job is to produce a verified email.
+  `/authorize` does not approve anything; it hands the browser to Google.
+  `/auth/google/callback` verifies the `id_token` and matches the address
+  against `BW_OAUTH_ALLOWED_DOMAINS` plus optional `BW_OAUTH_ALLOWED_EMAILS`.
+  An address outside the allowlist is refused there and never reaches a tool.
+  The service **refuses to boot** on an empty allowlist: unconfigured means
+  nobody, never everybody.
+- **Our bearer names a person.** The verified email rides on the authorization
+  code and into the issued access and refresh tokens, so an `/mcp` call is
+  attributable to someone rather than to "whoever has the key".
+- **Dynamic Client Registration is implemented** (`/register`, RFC 7591), which
+  is possible only because `client_id` is ours to mint again. A connector needs
+  nothing filled in. Registrations are signed blobs rather than stored rows, so
+  a redeploy does not invalidate an already-connected client. `/register` is
+  open by design, and the redirect-URI policy is what keeps that safe: without
+  it anyone could register `redirect_uri=https://evil.example` and collect a
+  real phoneware.us sign-in.
+- Clients are **public** (`token_endpoint_auth_method: none`): PKCE binds the
+  exchange, so there is no client secret for a connector to store or leak.
+- `BW_GATEWAY_TOKEN` (Secret Manager) is the HMAC signing key for codes,
+  bearers and client ids. It never leaves the server. Rotating it invalidates
+  every client registration, which is the intended blunt revoke.
+- Bandwidth callback routes + health stay open (they deliver async events, not
+  account control).
+- Authorization follows the 2026-07-28 MCP spec: `iss` on every authorization
+  response (RFC 9207) and `resource` indicators validated and bound into the
+  token audience (RFC 8707).
 - Tools attach the upstream token per-request from the live config
   (`servers.py` `_LiveConfigTokenAuth`), so mint/refresh needs no restart.
-  Refresh cycles (~50 min) re-present the creds and re-mint upstream.
+  The upstream token is minted from the server-side credential on demand and
+  refreshed as it ages, so a cold container heals itself instead of 401ing a
+  client that did nothing wrong.
 - `BW_GATEWAY_TOKEN` (Secret Manager) is the HMAC signing key for codes and
   bearers. It never leaves the server. Bandwidth callback routes + health
   stay open (they deliver async events, not account control).
-- Single-tenant: whoever holds Phoneware's Bandwidth creds gets Phoneware's
-  account; there is no per-user identity at Bandwidth.
-- Authorization follows the 2026-07-28 MCP spec: `iss` on every authorization
-  response (RFC 9207) and `resource` indicators validated and bound into the
-  token audience (RFC 8707). DCR is deliberately absent, see `CLAUDE.md`.
 - **The MCP protocol is stateless** (2026-07-28: no handshake, no session id),
   and handshake-era clients are served sessionlessly too. That removes session
   affinity as a reason to pin one instance.
@@ -47,19 +73,40 @@ Phoneware's voice is NetSapiens and texting is Clerk/NS). e911 provisioning is
 not exposed. The surface is set in `cloudbuild.yaml`, see `CLAUDE.md`.
 
 ## One-time setup (needs an operator / the owner)
-1. **Bandwidth API creds.** Create/obtain the Bandwidth API `client_id` +
-   `client_secret` (Bandwidth Dashboard). They go in the **client's connector
-   config** (claude.ai Client ID/Secret fields), NOT in Secret Manager and
-   never on the server.
-2. **Signing key** (HMAC key for OAuth codes/bearers; server-side only):
+1. **Google OAuth client.** Google Cloud console (`phoneware-edge`) -> APIs &
+   Services -> Credentials -> Create OAuth client ID -> Web application.
+   Authorized redirect URI, exactly one, and it must equal `BW_MCP_BASE_URL`
+   + `/auth/google/callback`:
+   ```
+   https://mcp.bandwidth.phoneware.cloud/auth/google/callback
+   ```
+   Record the client id and secret. Then publish the id (it is not a secret)
+   and store the secret:
+   ```
+   gh variable set BW_OAUTH_CLIENT_ID --repo phoneware/bandwidth-mcp --body '<client-id>'
+   printf %s '<client-secret>' | gcloud secrets create bandwidth-mcp-google-secret \
+     --data-file=- --project=phoneware-edge
+   ```
+2. **Bandwidth API creds.** Create/obtain the Bandwidth API `client_id` +
+   `client_secret` (Bandwidth Dashboard). They go in **Secret Manager and
+   nowhere else**: not in a connector field, not in a plugin `.mcp.json`, not
+   in this repo. Anyone holding them holds the carrier account.
+   ```
+   printf %s '<CLI-...>'  | gcloud secrets create bandwidth-client-id     --data-file=- --project=phoneware-edge
+   printf %s '<secret>'   | gcloud secrets create bandwidth-client-secret --data-file=- --project=phoneware-edge
+   ```
+   To rotate, add a new version (`gcloud secrets versions add`) and redeploy;
+   the service pins `:latest`.
+3. **Signing key** (HMAC key for OAuth codes/bearers/client ids; server-side only):
    ```
    openssl rand -hex 32 | tr -d '\n' | gcloud secrets create bandwidth-gateway-token --data-file=- --project=phoneware-edge
    ```
-3. **Artifact Registry repo** `bandwidth-mcp` (us-central1), if not present.
-4. **Cloud Build GitHub trigger** on this repo's `main` -> `cloudbuild.yaml`
-   (authorize the Cloud Build GitHub App on `phoneware/bandwidth-mcp` first).
-5. Grant the Cloud Run runtime SA `roles/secretmanager.secretAccessor` on the
-   signing-key secret.
+4. **Artifact Registry repo** `bandwidth-mcp` (us-central1), if not present.
+5. Grant the Cloud Run runtime SA `roles/secretmanager.secretAccessor` on all
+   four secrets.
+6. **Who may sign in** is `BW_OAUTH_ALLOWED_DOMAINS` in `cloudbuild.yaml`
+   (`phoneware.us`). Add a named outside collaborator with
+   `BW_OAUTH_ALLOWED_EMAILS` rather than widening the domain list.
 
 ## Deploy
 Push to `main` -> the Cloud Build trigger builds + deploys. After the first
@@ -71,22 +118,36 @@ gcloud run services update bandwidth-mcp --region=us-central1 \
 Optionally map DNS `mcp.bandwidth.phoneware.cloud` (add a CNAME in the monorepo
 `godaddy.tf`, mirroring `mcp.peplink`).
 
-## Connect (the owner handles the client side)
-claude.ai → Settings → Connectors → Add custom connector:
+## Connect
+claude.ai -> Settings -> Connectors -> Add custom connector:
 - **URL**: `https://mcp.bandwidth.phoneware.cloud/mcp`
-- **Client ID / Client Secret** (advanced settings): the **Bandwidth API
-  creds** (`CLI-...` id + secret from the Bandwidth Dashboard).
-claude.ai runs the OAuth flow (instant redirect, no login page) and the
-server validates the creds against Bandwidth on every token exchange.
-Header-capable clients (Claude Code) use the same URL and OAuth flow.
+- **Client ID / Client Secret**: leave both blank. The connector registers
+  itself. Filling them in is what the old model required and it is no longer
+  how this works.
+
+The browser lands on a Google sign-in. Sign in with a `phoneware.us` account
+and the connector finishes. Claude Code uses the same URL and the same flow
+with no extra flags; `claude mcp add --transport http bandwidth <url>` is the
+whole setup.
+
+Anyone who connected under the old model must reconnect once: their cached
+`client_id` was the Bandwidth credential, which is no longer a client id.
 
 ## Verify
+- `GET /.well-known/oauth-authorization-server` advertises a
+  `registration_endpoint` (without it, clients report *"Automatic client
+  registration isn't supported"*).
+- `POST /register` with a `claude.ai` redirect URI -> `201` and a `client_id`;
+  with `https://evil.example` -> `400 invalid_redirect_uri`.
+- `GET /authorize` with that client -> `302` to `accounts.google.com`, and no
+  `code` in the location. Nothing is approved before a sign-in.
+- `GET /authorize` with an unregistered `client_id` -> `401`.
 - `POST /mcp` without a bearer -> `401` with `WWW-Authenticate: Bearer
   resource_metadata=...`.
-- `POST /token` with garbage creds -> `401 {"error":"invalid_client"}`
-  (proves upstream validation is wired).
-- Connect claude.ai with the real creds -> a read-only tool (e.g. lookup)
-  returns data.
+- Sign in with a non-allowlisted Google account -> `403` refusal page, and no
+  redirect back to the client.
+- Sign in with a `phoneware.us` account -> a read-only tool returns data, and
+  the issued bearer carries that address as `sub`.
 
 ## Local smoke test
 Run from `src/` (do NOT `pip install .` — the upstream pyproject omits some

@@ -30,7 +30,7 @@ Everything below is Phoneware's delta on top of upstream. This is "the changes".
 | Area | Upstream | This fork |
 |---|---|---|
 | Hosting | self-run stdio package | hosted OAuth 2.1 gateway on Cloud Run (`serve.py`) |
-| Auth | env creds or stdio `setCredentials` | Bandwidth creds live in the **client's connector config**; validated at `/token` by minting an upstream token; nothing credential-shaped at rest |
+| Auth | env creds or stdio `setCredentials` | **Google sign-in** in front of the tools; the Bandwidth creds live in Secret Manager on the service and are never sent to a client |
 | Numbers / porting | none (Numbers API is XML; `from_openapi` can't drive it) | hand-written XML tools: port-in/out, inventory search, orders, sites, SIP peers, per-number detail, portability, carrier writes (`src/tools/numbers.py`) |
 | Billing | none | async usage/billing reports engine (`src/tools/reports.py`) |
 | Accounts | first account only | multi-account: one client ID, `account_id` per tool, validated against the token claims |
@@ -65,15 +65,25 @@ its framing predates the numbers surface).
 
 ## Connecting
 
-**claude.ai** → Settings → Connectors → Add custom connector:
+**claude.ai** -> Settings -> Connectors -> Add custom connector:
 - **URL**: `https://mcp.bandwidth.phoneware.cloud/mcp`
-- **Client ID / Client Secret** (advanced settings): the **Bandwidth API creds**
-  (`CLI-…` id + secret from the Bandwidth Dashboard).
+- **Client ID / Client Secret**: leave blank. The connector registers itself.
 
-claude.ai runs the OAuth flow (instant redirect, no login page) and the server
-validates the creds against Bandwidth on every token exchange. Header-capable
-clients (Claude Code) use the same URL and flow. Full detail and the security
-rationale are in [`DEPLOY.md`](DEPLOY.md).
+The browser lands on a Google sign-in; a `phoneware.us` account finishes the
+connection, anything else is refused. Claude Code is the same URL and the same
+flow with no extra flags:
+
+```
+claude mcp add --transport http bandwidth https://mcp.bandwidth.phoneware.cloud/mcp
+```
+
+The Bandwidth API credential is not part of this. It lives in Secret Manager on
+the service, because holding it is equivalent to holding the carrier account:
+an exchange with it needs no login and can port numbers away. Full detail and
+the security rationale are in [`DEPLOY.md`](DEPLOY.md).
+
+If you connected before the sign-in gate landed, reconnect once: the cached
+`client_id` was the Bandwidth credential and is no longer a client id.
 
 ## Deploy
 

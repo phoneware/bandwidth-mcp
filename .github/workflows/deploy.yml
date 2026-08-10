@@ -34,10 +34,25 @@ jobs:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.DEPLOYER_SA }}
       - uses: google-github-actions/setup-gcloud@v2
+      # The Google OAuth web client behind the sign-in gate. Public, not a
+      # secret (its secret is in Secret Manager), so it rides as a repo
+      # variable rather than a GitHub secret. Asserted here rather than
+      # defaulted: an empty value would deploy a revision that cannot boot,
+      # and a "temporary" default would be a way in that nobody re-checks.
+      - name: Check the sign-in gate is configured
+        run: |
+          if [ -z "${{ vars.BW_OAUTH_CLIENT_ID }}" ]; then
+            echo "::error::Repository variable BW_OAUTH_CLIENT_ID is not set."
+            echo "Create the Google OAuth web client (redirect URI:"
+            echo "https://mcp.bandwidth.phoneware.cloud/auth/google/callback),"
+            echo "then: gh variable set BW_OAUTH_CLIENT_ID --repo phoneware/bandwidth-mcp"
+            exit 1
+          fi
+
       - name: Build and deploy via Cloud Build
         run: |
           gcloud builds submit \
             --project=phoneware-edge \
             --config=cloudbuild.yaml \
-            --substitutions=COMMIT_SHA=${GITHUB_SHA} \
+            --substitutions=COMMIT_SHA=${GITHUB_SHA},_GOOGLE_CLIENT_ID='${{ vars.BW_OAUTH_CLIENT_ID }}' \
             .

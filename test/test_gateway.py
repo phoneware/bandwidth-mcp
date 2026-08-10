@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 import time
+from urllib.parse import unquote
 
 import pytest
 import pytest_asyncio
@@ -32,6 +33,14 @@ _ENV_FOR_IMPORT = {
     "BW_GATEWAY_TOKEN": "x" * 40,
     "BW_MCP_BASE_URL": "https://mcp.gateway.test",
     "BW_MCP_TRANSPORT": "streamable-http",
+    # The carrier credential lives on the server now, so serve.py refuses to
+    # import without it, the Google client, and an allowlist.
+    "BW_CLIENT_ID": "CLI-server-side",
+    "BW_CLIENT_SECRET": "server-side-secret",
+    "BW_OAUTH_CLIENT_ID": "google-client-id.apps.googleusercontent.com",
+    "BW_OAUTH_CLIENT_SECRET": "google-client-secret",
+    "BW_OAUTH_ALLOWED_DOMAINS": "phoneware.us",
+    "BW_OAUTH_ALLOWED_EMAILS": "contractor@example.com",
 }
 _SAVED_ENV = {k: os.environ.get(k) for k in _ENV_FOR_IMPORT}
 os.environ.update(_ENV_FOR_IMPORT)
@@ -54,6 +63,10 @@ async def _no_openapi(mcp_instance, enabled_tools, excluded_tools, config=None):
     return mcp_instance
 
 
+async def _no_upstream_auth(config):
+    return None
+
+
 @pytest_asyncio.fixture(scope="module", loop_scope="module")
 async def gateway():
     """The real gateway app with its lifespan run.
@@ -70,6 +83,12 @@ async def gateway():
     async def run_lifespan():
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(app_mod, "create_bandwidth_mcp", _no_openapi)
+            # The carrier creds are real env vars now, so app.py's startup
+            # authenticate_config() would fire a live client_credentials call at
+            # Bandwidth on every test run. Stub it: this file is about the
+            # gateway, and a hermetic suite must not depend on Bandwidth being
+            # reachable (or on those creds still being valid).
+            mp.setattr(app_mod, "authenticate_config", _no_upstream_auth)
             mp.setenv("BW_MCP_PROFILE", "numbers")
             for key, value in _ENV_FOR_IMPORT.items():
                 mp.setenv(key, value)
@@ -85,9 +104,44 @@ async def gateway():
 
 
 def _bearer(**overrides) -> str:
-    payload = {"typ": "at", "exp": time.time() + 600, "cid": "CLI-test"}
+    payload = {
+        "typ": "at",
+        "exp": time.time() + 600,
+        "cid": "CLI-test",
+        "sub": "rickw@phoneware.us",
+    }
     payload.update(overrides)
     return serve._sign(payload)
+
+
+_CLAUDE_CB = "https://claude.ai/api/mcp/auth_callback"
+
+
+def _registered_client(redirect_uri: str = _CLAUDE_CB) -> str:
+    """A client_id as /register would mint it, without the round trip."""
+    return serve._sign(
+        {
+            "typ": "cli",
+            "exp": time.time() + 3600,
+            "ru": [redirect_uri],
+            "n": "test",
+        }
+    )
+
+
+def _upstream_is_live(monkeypatch) -> None:
+    """Pretend Bandwidth has already handed us a token."""
+    monkeypatch.setattr(serve, "_ensure_upstream", _always_live)
+
+
+async def _always_live() -> bool:
+    return True
+
+
+def _fake_jwt(ttl: int = 3600) -> str:
+    """A token shaped enough for oauth._decode_jwt_payload to read an exp."""
+    claims = _b64u(json.dumps({"exp": int(time.time() + ttl)}).encode())
+    return f"{_b64u(b'{}')}.{claims}.{_b64u(b'sig')}"
 
 
 def _upstream_alive(monkeypatch):
@@ -175,6 +229,11 @@ async def test_authorization_server_metadata_advertises_iss_support(gateway):
     assert body["code_challenge_methods_supported"] == ["S256"]
     # RFC 9207, expected by the 2026-07-28 authorization spec
     assert body["authorization_response_iss_parameter_supported"] is True
+    # DCR is the whole reason a connector needs nothing filled in. Losing this
+    # is what produced "Automatic client registration isn't supported".
+    assert body["registration_endpoint"] == "https://mcp.gateway.test/register"
+    # Public clients: PKCE binds the exchange, there is no secret to leak.
+    assert body["token_endpoint_auth_methods_supported"] == ["none"]
 
 
 @pytest.mark.asyncio(loop_scope="module")
@@ -190,14 +249,53 @@ async def test_protected_resource_metadata(gateway):
             assert body["scopes_supported"] == ["bandwidth"]
 
 
+# ── dynamic client registration ─────────────────────────────────────────────
+
+
 @pytest.mark.asyncio(loop_scope="module")
-async def test_authorize_returns_code_and_iss(gateway):
+async def test_register_mints_a_usable_public_client(gateway):
+    async with _http(gateway.application) as client:
+        resp = await client.post(
+            "/register",
+            json={
+                "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"],
+                "client_name": "Claude",
+            },
+        )
+    body = resp.json()
+    assert resp.status_code == 201
+    assert body["token_endpoint_auth_method"] == "none"
+    assert "client_secret" not in body
+    # The id is a signed blob, so it survives a redeploy with nothing stored.
+    assert serve._client_redirects(body["client_id"]) == [
+        "https://claude.ai/api/mcp/auth_callback"
+    ]
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_register_refuses_a_redirect_it_would_not_honour(gateway):
+    """/register is open by design, which is exactly why the redirect policy
+    has to hold here: otherwise anyone could register their own callback and
+    collect a real phoneware.us sign-in."""
+    async with _http(gateway.application) as client:
+        resp = await client.post(
+            "/register", json={"redirect_uris": ["https://evil.example/steal"]}
+        )
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "invalid_redirect_uri"
+
+
+# ── authorize now starts a Google sign-in, it does not approve ──────────────
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_authorize_hands_the_browser_to_google(gateway):
     async with _http(gateway.application) as client:
         resp = await client.get(
             "/authorize",
             params={
                 "response_type": "code",
-                "client_id": "CLI-abc",
+                "client_id": _registered_client(),
                 "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
                 "code_challenge": _b64u(hashlib.sha256(b"verifier").digest()),
                 "code_challenge_method": "S256",
@@ -207,9 +305,44 @@ async def test_authorize_returns_code_and_iss(gateway):
         )
     assert resp.status_code == 302
     location = resp.headers["location"]
-    assert "iss=https%3A%2F%2Fmcp.gateway.test" in location
-    assert "state=st-1" in location
-    assert "code=" in location
+    assert location.startswith("https://accounts.google.com/o/oauth2/v2/auth?")
+    assert "client_id=google-client-id.apps.googleusercontent.com" in location
+    # No authorization code is handed out before anyone has signed in.
+    assert "code=" not in location.split("?", 1)[1].replace("response_type=code", "")
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_authorize_rejects_an_unregistered_client(gateway):
+    """The old model let any client_id through, because the id was the
+    Bandwidth credential. Now an unknown id is simply not a client."""
+    async with _http(gateway.application) as client:
+        resp = await client.get(
+            "/authorize",
+            params={
+                "response_type": "code",
+                "client_id": "CLI-abc",
+                "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
+                "code_challenge": _b64u(hashlib.sha256(b"verifier").digest()),
+                "code_challenge_method": "S256",
+            },
+        )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_authorize_rejects_a_redirect_the_client_never_registered(gateway):
+    async with _http(gateway.application) as client:
+        resp = await client.get(
+            "/authorize",
+            params={
+                "response_type": "code",
+                "client_id": _registered_client("http://localhost:5000/callback"),
+                "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
+                "code_challenge": _b64u(hashlib.sha256(b"verifier").digest()),
+                "code_challenge_method": "S256",
+            },
+        )
+    assert resp.status_code == 400
 
 
 @pytest.mark.asyncio(loop_scope="module")
@@ -220,7 +353,7 @@ async def test_authorize_rejects_foreign_resource_indicator(gateway):
             "/authorize",
             params={
                 "response_type": "code",
-                "client_id": "CLI-abc",
+                "client_id": _registered_client(),
                 "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
                 "code_challenge": _b64u(hashlib.sha256(b"verifier").digest()),
                 "code_challenge_method": "S256",
@@ -232,52 +365,177 @@ async def test_authorize_rejects_foreign_resource_indicator(gateway):
     assert "iss=" in resp.headers["location"]
 
 
-@pytest.mark.asyncio(loop_scope="module")
-async def test_token_exchange_binds_the_resource_audience(gateway, monkeypatch):
-    minted = {}
+# ── the Google callback is where authorization actually happens ─────────────
 
-    async def fake_mint(client_id, client_secret):
-        minted["creds"] = (client_id, client_secret)
 
-    monkeypatch.setattr(serve, "_mint_upstream", fake_mint)
+def _pending_state(**overrides) -> str:
+    payload = {
+        "typ": "pend",
+        "exp": time.time() + 300,
+        "cid": _registered_client(),
+        "ru": "https://claude.ai/api/mcp/auth_callback",
+        "cc": _b64u(hashlib.sha256(b"verifier").digest()),
+        "res": "https://mcp.gateway.test/mcp",
+        "st": "st-1",
+        "n": "test",
+    }
+    payload.update(overrides)
+    return serve._sign(payload)
 
-    verifier = "verifier-string"
-    code = serve._sign(
-        {
-            "typ": "code",
-            "exp": time.time() + 60,
-            "cid": "CLI-abc",
-            "ru": "https://claude.ai/api/mcp/auth_callback",
-            "cc": _b64u(hashlib.sha256(verifier.encode()).digest()),
-            "res": "https://mcp.gateway.test/mcp",
-            "n": "abc",
+
+def _google_returns(monkeypatch, email: str, verified=True) -> None:
+    async def fake_exchange(code, client_id, client_secret, callback_url):
+        return {
+            "iss": "https://accounts.google.com",
+            "aud": "google-client-id.apps.googleusercontent.com",
+            "exp": time.time() + 600,
+            "email": email,
+            "email_verified": verified,
         }
-    )
+
+    monkeypatch.setattr(serve.gauth, "exchange_code", fake_exchange)
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_callback_issues_a_code_for_an_allowed_email(gateway, monkeypatch):
+    _google_returns(monkeypatch, "rickw@phoneware.us")
+    async with _http(gateway.application) as client:
+        resp = await client.get(
+            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+        )
+    assert resp.status_code == 302
+    location = resp.headers["location"]
+    assert location.startswith("https://claude.ai/api/mcp/auth_callback?")
+    assert "state=st-1" in location
+    assert "iss=https%3A%2F%2Fmcp.gateway.test" in location
+    code = unquote(location.split("code=", 1)[1].split("&")[0])
+    # The verified identity is carried on the code, so the bearer can name a person.
+    assert serve._verify(code, "code")["sub"] == "rickw@phoneware.us"
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_callback_refuses_an_email_outside_the_allowlist(gateway, monkeypatch):
+    """The point of the whole change: a valid Google account is not enough."""
+    _google_returns(monkeypatch, "someone@gmail.com")
+    async with _http(gateway.application) as client:
+        resp = await client.get(
+            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+        )
+    assert resp.status_code == 403
+    assert "someone@gmail.com" in resp.text
+    # It refuses in place; it does not hand a code back to the client.
+    assert "location" not in resp.headers
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_callback_allows_an_explicitly_listed_outside_address(gateway, monkeypatch):
+    _google_returns(monkeypatch, "contractor@example.com")
+    async with _http(gateway.application) as client:
+        resp = await client.get(
+            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+        )
+    assert resp.status_code == 302
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_callback_refuses_an_unverified_google_email(gateway, monkeypatch):
+    _google_returns(monkeypatch, "rickw@phoneware.us", verified=False)
+    async with _http(gateway.application) as client:
+        resp = await client.get(
+            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+        )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_callback_refuses_a_forged_state(gateway, monkeypatch):
+    _google_returns(monkeypatch, "rickw@phoneware.us")
+    async with _http(gateway.application) as client:
+        resp = await client.get(
+            "/auth/google/callback", params={"code": "g-code", "state": "not.signed"}
+        )
+    assert resp.status_code == 400
+
+
+# ── token exchange ──────────────────────────────────────────────────────────
+
+
+def _signed_code(verifier: str, client_id: str, **overrides) -> str:
+    payload = {
+        "typ": "code",
+        "exp": time.time() + 60,
+        "cid": client_id,
+        "ru": "https://claude.ai/api/mcp/auth_callback",
+        "cc": _b64u(hashlib.sha256(verifier.encode()).digest()),
+        "res": "https://mcp.gateway.test/mcp",
+        "sub": "rickw@phoneware.us",
+        "n": "abc",
+    }
+    payload.update(overrides)
+    return serve._sign(payload)
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_token_exchange_binds_the_resource_and_the_person(gateway, monkeypatch):
+    _upstream_is_live(monkeypatch)
+    verifier = "verifier-string"
+    cid = _registered_client()
     async with _http(gateway.application) as client:
         resp = await client.post(
             "/token",
             data={
                 "grant_type": "authorization_code",
-                "code": code,
+                "code": _signed_code(verifier, cid),
                 "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
                 "code_verifier": verifier,
-                "client_id": "CLI-abc",
-                "client_secret": "s3cret",
+                "client_id": cid,
                 "resource": "https://mcp.gateway.test/mcp",
             },
         )
     body = resp.json()
     assert resp.status_code == 200
-    assert minted["creds"] == ("CLI-abc", "s3cret")
-    assert serve._verify(body["access_token"], "at")["aud"] == (
-        "https://mcp.gateway.test/mcp"
-    )
+    access = serve._verify(body["access_token"], "at")
+    assert access["aud"] == "https://mcp.gateway.test/mcp"
+    # Every /mcp call is now attributable to a person, not to "whoever has the key".
+    assert access["sub"] == "rickw@phoneware.us"
     assert serve._verify(body["refresh_token"], "rt") is not None
 
 
 @pytest.mark.asyncio(loop_scope="module")
-async def test_token_rejects_foreign_resource_indicator(gateway, monkeypatch):
-    monkeypatch.setattr(serve, "_mint_upstream", lambda *a, **k: None)
+async def test_token_never_asks_the_client_for_a_carrier_credential(gateway, monkeypatch):
+    """A client presenting no secret at all must succeed: that is the change.
+    The carrier credential is the server's, and it is not on this wire."""
+    captured = {}
+
+    async def fake_get_token(client_id, client_secret, token_url=None):
+        captured["creds"] = (client_id, client_secret)
+        return {"access_token": _fake_jwt(), "accounts": ["5011369"]}
+
+    monkeypatch.setattr(serve, "get_oauth_token", fake_get_token)
+    monkeypatch.setitem(serve._config, "BW_ACCESS_TOKEN", "")
+    monkeypatch.setitem(serve._config, "BW_TOKEN_EXP", 0)
+
+    verifier = "v2"
+    cid = _registered_client()
+    async with _http(gateway.application) as client:
+        resp = await client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": _signed_code(verifier, cid),
+                "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
+                "code_verifier": verifier,
+                "client_id": cid,
+            },
+        )
+    assert resp.status_code == 200
+    # Minted from the server's own env creds, never from anything the client sent.
+    assert captured["creds"] == ("CLI-server-side", "server-side-secret")
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_token_rejects_an_unregistered_client(gateway, monkeypatch):
+    _upstream_is_live(monkeypatch)
     async with _http(gateway.application) as client:
         resp = await client.post(
             "/token",
@@ -286,6 +544,48 @@ async def test_token_rejects_foreign_resource_indicator(gateway, monkeypatch):
                 "code": "whatever",
                 "client_id": "CLI-abc",
                 "client_secret": "s3cret",
+            },
+        )
+    assert resp.status_code == 401
+    assert resp.json()["error"] == "invalid_client"
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_token_rejects_a_code_minted_for_another_client(gateway, monkeypatch):
+    _upstream_is_live(monkeypatch)
+    verifier = "v3"
+    theirs = serve._sign(
+        {"typ": "cli", "exp": time.time() + 3600, "ru": [_CLAUDE_CB], "n": "theirs"}
+    )
+    mine = serve._sign(
+        {"typ": "cli", "exp": time.time() + 3600, "ru": [_CLAUDE_CB], "n": "mine"}
+    )
+    assert theirs != mine
+    async with _http(gateway.application) as client:
+        resp = await client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": _signed_code(verifier, theirs),
+                "redirect_uri": _CLAUDE_CB,
+                "code_verifier": verifier,
+                "client_id": mine,
+            },
+        )
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "invalid_grant"
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_token_rejects_foreign_resource_indicator(gateway, monkeypatch):
+    _upstream_is_live(monkeypatch)
+    async with _http(gateway.application) as client:
+        resp = await client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": "whatever",
+                "client_id": _registered_client(),
                 "resource": "https://evil.example.com/mcp",
             },
         )

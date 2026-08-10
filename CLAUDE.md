@@ -177,12 +177,16 @@ not in code. Current deployment:
   runs on NetSapiens, texting goes through Clerk/NS), and TN Lookup is not
   enabled on the account. Re-add a profile here if Bandwidth enables the product.
 
-Four secrets are mounted: `BW_GATEWAY_TOKEN` (the HMAC signing key),
-`BW_CLIENT_ID` + `BW_CLIENT_SECRET` (the Bandwidth API credential) and
-`BW_OAUTH_CLIENT_SECRET` (the Google web client). All four come from Secret
-Manager in `phoneware-edge` and exist nowhere else. The Google client **id**
-is public and rides as the repo variable `BW_OAUTH_CLIENT_ID`, passed into
-Cloud Build as `_GOOGLE_CLIENT_ID`.
+Five secrets are mounted, all from Secret Manager in `phoneware-edge` and
+existing nowhere else: `BW_GATEWAY_TOKEN` (the HMAC signing key),
+`BW_CLIENT_ID` + `BW_CLIENT_SECRET` (the Bandwidth API credential), and
+`BW_OAUTH_CLIENT_ID` + `BW_OAUTH_CLIENT_SECRET` (the Google web client).
+
+The Google client **id** is not secret and could be a plain env var, the way
+`autotask-mcp` carries its. It rides as a secret here so that one credential
+pair lives in one place: an id in CI config with its secret in GCP is two
+systems to keep in step, and the failure mode is a gate that looks configured
+and is not. Nothing credential-shaped is set in GitHub.
 
 ## OAuth model (`serve.py`)
 `serve.py` is an OAuth 2.1 authorization server to MCP clients and an OAuth 2.0

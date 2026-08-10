@@ -6,11 +6,12 @@
 # Prereqs (one-time, see DEPLOY.md):
 #   - Artifact Registry repo `bandwidth-mcp` in us-central1.
 #   - Secret Manager: bandwidth-client-id, bandwidth-client-secret,
-#     bandwidth-gateway-token, bandwidth-mcp-google-secret.
+#     bandwidth-gateway-token, bandwidth-mcp-google-client-id,
+#     bandwidth-mcp-google-secret.
 #   - The Cloud Run runtime SA can access those secrets (roles/secretmanager.secretAccessor).
 #   - A Google OAuth web client whose authorized redirect URI is exactly
-#     https://mcp.bandwidth.phoneware.cloud/auth/google/callback, with its id in
-#     the repo variable BW_OAUTH_CLIENT_ID (passed in as _GOOGLE_CLIENT_ID).
+#     https://mcp.bandwidth.phoneware.cloud/auth/google/callback. Both halves of
+#     it live in Secret Manager; nothing credential-shaped is set in GitHub.
 #
 # Security model: the service is public ingress (Bandwidth callbacks + the Claude
 # client must reach it). /mcp is gated by a bearer this service issues, and it
@@ -78,8 +79,13 @@ steps:
       #                          client_credentials exchange with it needs no
       #                          login and can port numbers away, so it is now
       #                          server-side only and never on the wire to a client.
-      #   BW_OAUTH_CLIENT_SECRET the Google web client behind the sign-in gate.
-      - --set-secrets=BW_GATEWAY_TOKEN=bandwidth-gateway-token:latest,BW_CLIENT_ID=bandwidth-client-id:latest,BW_CLIENT_SECRET=bandwidth-client-secret:latest,BW_OAUTH_CLIENT_SECRET=bandwidth-mcp-google-secret:latest
+      #   BW_OAUTH_CLIENT_ID/SECRET the Google web client behind the sign-in
+      #                          gate. The id is not secret, but it rides here
+      #                          anyway so one credential pair lives in one
+      #                          place. Splitting it (id in a CI variable, secret
+      #                          in GCP) means two systems to keep in step and
+      #                          two ways to half-configure the gate.
+      - --set-secrets=BW_GATEWAY_TOKEN=bandwidth-gateway-token:latest,BW_CLIENT_ID=bandwidth-client-id:latest,BW_CLIENT_SECRET=bandwidth-client-secret:latest,BW_OAUTH_CLIENT_ID=bandwidth-mcp-google-client-id:latest,BW_OAUTH_CLIENT_SECRET=bandwidth-mcp-google-secret:latest
       # BW_MCP_BASE_URL should be the service's public URL once known (needed for
       # voice/messaging callbacks). BW_MCP_PROFILE trims the tool surface.
       # --set-env-vars REPLACES the service env wholesale: this list is the
@@ -102,13 +108,12 @@ steps:
       # lookup profile also dropped: the TN Lookup product is not enabled on
       # this Bandwidth account ("Account not authorized"); re-add the profile
       # here if Bandwidth enables it.
-      # BW_OAUTH_CLIENT_ID is the Google web client; its authorized redirect URI
-      # must be BW_MCP_BASE_URL + /auth/google/callback, exactly.
       # BW_OAUTH_ALLOWED_DOMAINS is who may sign in. serve.py refuses to boot on
       # an empty allowlist rather than defaulting to open: an empty list here
       # would hand the carrier account to any Google account on earth. Add named
       # outside contractors with BW_OAUTH_ALLOWED_EMAILS rather than widening it.
-      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_ACCOUNT_ID=5011369@BW_MCP_PROFILE=numbers,numbers-write,billing@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud@BW_OAUTH_CLIENT_ID=${_GOOGLE_CLIENT_ID}@BW_OAUTH_ALLOWED_DOMAINS=phoneware.us
+      # (The Google client id rides in --set-secrets above, with its secret.)
+      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_ACCOUNT_ID=5011369@BW_MCP_PROFILE=numbers,numbers-write,billing@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud@BW_OAUTH_ALLOWED_DOMAINS=phoneware.us
 
 substitutions:
   _REGION: us-central1

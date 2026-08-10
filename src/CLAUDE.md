@@ -10,9 +10,11 @@ lifespan so it runs on FastMCP's event loop:
 1. `get_enabled_tools()` / `get_excluded_tools()` read the env/CLI filter
    (`config.py`).
 2. `load_config()` + `authenticate_config()` read env and, if `BW_CLIENT_ID`/
-   `BW_CLIENT_SECRET` are present, do the startup OAuth token exchange. In the
-   hosted gateway these are absent at boot; the token is minted later by
-   `serve.py` at `/token`.
+   `BW_CLIENT_SECRET` are present, do the startup OAuth token exchange. The
+   hosted gateway now mounts those from Secret Manager, so this fires at boot
+   there too; `serve.py` re-mints and refreshes on demand
+   (`_ensure_upstream`), which is what keeps a cold container from 401ing a
+   valid bearer.
 3. Optional dev tunnel (`BW_MCP_DEV_TUNNEL`) opens a `cloudflared` tunnel and
    sets `BW_MCP_BASE_URL`.
 4. `create_bandwidth_mcp()` mounts the OpenAPI-derived tools (`servers.py`).
@@ -94,4 +96,6 @@ Because it is in-memory, the service runs as a single warm instance (see root
 ## OAuth (`oauth.py`)
 `get_oauth_token()` does the Bandwidth client-credentials exchange and returns
 the access token plus the `accounts` claim. Used both at startup
-(`authenticate_config`) and by the hosted gateway's `/token` mint (`serve.py`).
+(`authenticate_config`) and by the hosted gateway's on-demand mint
+(`serve.py` `_ensure_upstream`). It is always called with the **server's** own
+creds; nothing a client sends is ever passed to it.

@@ -335,6 +335,61 @@ async def test_rejects_a_new_btn_equal_to_the_btn(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_account_number_and_pin_go_inside_wirelessinfo(monkeypatch):
+    """Bandwidth keeps the losing carrier's account number and PIN inside
+    <WirelessInfo>, for wireline ports too. Emitted as top-level children of
+    LnpOrder they are silently dropped: the order looks complete, then the
+    losing carrier rejects it for a missing account number days later."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("createPortInOrder", {
+            **_GOOD_PORT_IN,
+            "losing_carrier_account_number": " 2941 ",
+            "pin": " 1030 ",
+        })
+    xml = sent["xml"]
+    assert "<WirelessInfo>" in xml
+    assert "<AccountNumber>2941</AccountNumber>" in xml
+    assert "<PinNumber>1030</PinNumber>" in xml
+    # nested, not loose on LnpOrder
+    assert "<WirelessInfo><AccountNumber>2941</AccountNumber><PinNumber>1030</PinNumber></WirelessInfo>" in xml
+    assert "</LnpOrder>" not in xml.split("<WirelessInfo>")[0].split("<AccountNumber>")[-1]
+
+
+@pytest.mark.asyncio
+async def test_wirelessinfo_omitted_when_neither_is_known(monkeypatch):
+    """No account number and no PIN means no container at all, rather than an
+    empty one."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool("createPortInOrder", {**_GOOD_PORT_IN})
+    assert "WirelessInfo" not in sent["xml"]
+
+    # a PIN with no account number still gets a container
+    async with Client(mcp) as client:
+        await client.call_tool("createPortInOrder", {**_GOOD_PORT_IN, "pin": "1030"})
+    assert "<WirelessInfo><PinNumber>1030</PinNumber></WirelessInfo>" in sent["xml"]
+
+
+@pytest.mark.asyncio
 async def test_create_port_in_sends_address_line_2_between_street_and_city(monkeypatch):
     """A CSR's secondary unit ("Suite 130") has to reach Bandwidth, and has to
     sit between StreetName and City — elsewhere in ServiceAddress it is

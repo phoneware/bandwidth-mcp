@@ -631,8 +631,12 @@ def register_numbers_tools(mcp, config: dict) -> None:
             zip_code: Service address ZIP or ZIP+4 (required).
             requested_foc_date: Optional requested port date (YYYY-MM-DD).
             peer_id: Optional destination SIP peer (see listSipPeers).
-            losing_carrier_account_number: Account number with losing carrier.
-            pin: PIN/passcode with the losing carrier, if any.
+            losing_carrier_account_number: Account number with the losing
+                carrier, from their CSR or bill. Optional to Bandwidth but
+                required by most losing carriers: without it the order is
+                accepted here and rejected there, days later. Collect it.
+            pin: PIN/passcode with the losing carrier. Same story as the
+                account number — get it if the carrier issues one.
             partial_port: True when only some of the losing account's numbers
                 are porting.
             new_billing_telephone_number: Only when the BTN is itself porting:
@@ -698,10 +702,20 @@ def register_numbers_tools(mcp, config: dict) -> None:
         SubElement(addr, "Zip").text = zip_code.strip()
         SubElement(body, "LoaAuthorizingPerson").text = loa_authorizing_person
         _tn_list(body, "ListOfPhoneNumbers", "PhoneNumber", numbers, e164=True)
-        if losing_carrier_account_number:
-            SubElement(body, "AccountNumber").text = losing_carrier_account_number
-        if pin:
-            SubElement(body, "PinNumber").text = pin
+        # The losing carrier's account number and PIN live inside <WirelessInfo>,
+        # whatever the name suggests — it is where Bandwidth keeps them for
+        # wireline ports too (LosingCarrierIsWireless=false orders come back with
+        # exactly this shape). As top-level children of LnpOrder they are
+        # silently dropped, the order is accepted looking complete, and the
+        # losing carrier rejects it days later for a missing account number.
+        if losing_carrier_account_number or pin:
+            wireless = SubElement(body, "WirelessInfo")
+            if losing_carrier_account_number:
+                SubElement(wireless, "AccountNumber").text = (
+                    losing_carrier_account_number.strip()
+                )
+            if pin:
+                SubElement(wireless, "PinNumber").text = pin.strip()
         SubElement(body, "SiteId").text = site_id
         if peer_id:
             SubElement(body, "PeerId").text = peer_id

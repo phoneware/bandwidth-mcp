@@ -24,6 +24,7 @@ RUN pip install \
       "httpx2~=2.9" \
       "pyyaml~=6.0.0" \
       "werkzeug>=3.1.4" \
+      "google-cloud-firestore==2.21.0" \
       "uvicorn"
 
 COPY src ./src

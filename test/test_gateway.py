@@ -129,6 +129,13 @@ def _registered_client(redirect_uri: str = _CLAUDE_CB) -> str:
     )
 
 
+@pytest.fixture(autouse=True)
+def refresh_ledger(monkeypatch):
+    ledger = serve.MemoryRefreshFamilyLedger()
+    monkeypatch.setattr(serve, "_REFRESH_LEDGER", ledger)
+    return ledger
+
+
 def _upstream_is_live(monkeypatch) -> None:
     """Pretend Bandwidth has already handed us a token."""
     monkeypatch.setattr(serve, "_ensure_upstream", _always_live)
@@ -270,6 +277,10 @@ async def test_register_mints_a_usable_public_client(gateway):
     assert serve._client_redirects(body["client_id"]) == [
         "https://claude.ai/api/mcp/auth_callback"
     ]
+    assert "client_secret_expires_at" not in body
+    client_payload = serve._verify(body["client_id"], "cli", allow_no_exp=True)
+    assert client_payload is not None
+    assert "exp" not in client_payload
 
 
 @pytest.mark.asyncio(loop_scope="module")
@@ -401,7 +412,8 @@ async def test_callback_issues_a_code_for_an_allowed_email(gateway, monkeypatch)
     _google_returns(monkeypatch, "rickw@phoneware.us")
     async with _http(gateway.application) as client:
         resp = await client.get(
-            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+            "/auth/google/callback",
+            params={"code": "g-code", "state": _pending_state()},
         )
     assert resp.status_code == 302
     location = resp.headers["location"]
@@ -419,7 +431,8 @@ async def test_callback_refuses_an_email_outside_the_allowlist(gateway, monkeypa
     _google_returns(monkeypatch, "someone@gmail.com")
     async with _http(gateway.application) as client:
         resp = await client.get(
-            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+            "/auth/google/callback",
+            params={"code": "g-code", "state": _pending_state()},
         )
     assert resp.status_code == 403
     assert "someone@gmail.com" in resp.text
@@ -428,11 +441,14 @@ async def test_callback_refuses_an_email_outside_the_allowlist(gateway, monkeypa
 
 
 @pytest.mark.asyncio(loop_scope="module")
-async def test_callback_allows_an_explicitly_listed_outside_address(gateway, monkeypatch):
+async def test_callback_allows_an_explicitly_listed_outside_address(
+    gateway, monkeypatch
+):
     _google_returns(monkeypatch, "contractor@example.com")
     async with _http(gateway.application) as client:
         resp = await client.get(
-            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+            "/auth/google/callback",
+            params={"code": "g-code", "state": _pending_state()},
         )
     assert resp.status_code == 302
 
@@ -442,7 +458,8 @@ async def test_callback_refuses_an_unverified_google_email(gateway, monkeypatch)
     _google_returns(monkeypatch, "rickw@phoneware.us", verified=False)
     async with _http(gateway.application) as client:
         resp = await client.get(
-            "/auth/google/callback", params={"code": "g-code", "state": _pending_state()}
+            "/auth/google/callback",
+            params={"code": "g-code", "state": _pending_state()},
         )
     assert resp.status_code == 401
 
@@ -475,6 +492,40 @@ def _signed_code(verifier: str, client_id: str, **overrides) -> str:
     return serve._sign(payload)
 
 
+async def _register_via_http(client) -> str:
+    resp = await client.post("/register", json={"redirect_uris": [_CLAUDE_CB]})
+    assert resp.status_code == 201
+    return resp.json()["client_id"]
+
+
+async def _exchange_code_via_http(client, client_id: str, verifier: str) -> dict:
+    resp = await client.post(
+        "/token",
+        data={
+            "grant_type": "authorization_code",
+            "code": _signed_code(verifier, client_id),
+            "redirect_uri": _CLAUDE_CB,
+            "code_verifier": verifier,
+            "client_id": client_id,
+            "resource": "https://mcp.gateway.test/mcp",
+        },
+    )
+    assert resp.status_code == 200
+    return resp.json()
+
+
+async def _refresh_via_http(client, client_id: str, refresh_token: str):
+    return await client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": client_id,
+            "refresh_token": refresh_token,
+            "resource": "https://mcp.gateway.test/mcp",
+        },
+    )
+
+
 @pytest.mark.asyncio(loop_scope="module")
 async def test_token_exchange_binds_the_resource_and_the_person(gateway, monkeypatch):
     _upstream_is_live(monkeypatch)
@@ -498,11 +549,185 @@ async def test_token_exchange_binds_the_resource_and_the_person(gateway, monkeyp
     assert access["aud"] == "https://mcp.gateway.test/mcp"
     # Every /mcp call is now attributable to a person, not to "whoever has the key".
     assert access["sub"] == "rickw@phoneware.us"
-    assert serve._verify(body["refresh_token"], "rt") is not None
+    refresh_payload = serve._verify(body["refresh_token"], "rt", allow_no_exp=True)
+    assert refresh_payload is not None
+    assert "exp" not in refresh_payload
 
 
 @pytest.mark.asyncio(loop_scope="module")
-async def test_token_never_asks_the_client_for_a_carrier_credential(gateway, monkeypatch):
+async def test_public_dcr_client_refreshes_with_rotation_and_rejects_replay(
+    gateway, monkeypatch
+):
+    _upstream_is_live(monkeypatch)
+
+    async with _http(gateway.application) as client:
+        client_id = await _register_via_http(client)
+        first = await _exchange_code_via_http(client, client_id, "refresh-verifier")
+
+        first_refresh = first["refresh_token"]
+        refresh_resp = await _refresh_via_http(client, client_id, first_refresh)
+        assert refresh_resp.status_code == 200
+        second_refresh = refresh_resp.json()["refresh_token"]
+        assert second_refresh != first_refresh
+        second_payload = serve._verify(second_refresh, "rt", allow_no_exp=True)
+        assert second_payload is not None
+        assert "exp" not in second_payload
+
+        duplicate_resp = await _refresh_via_http(client, client_id, first_refresh)
+        assert duplicate_resp.status_code == 200
+        assert duplicate_resp.json()["refresh_token"] == second_refresh
+
+        successor_resp = await _refresh_via_http(client, client_id, second_refresh)
+        assert successor_resp.status_code == 200
+        third_refresh = successor_resp.json()["refresh_token"]
+        assert third_refresh != second_refresh
+
+        duplicate_successor = await _refresh_via_http(client, client_id, second_refresh)
+        assert duplicate_successor.status_code == 200
+        assert duplicate_successor.json()["refresh_token"] == third_refresh
+
+        older_replay = await _refresh_via_http(client, client_id, first_refresh)
+        assert older_replay.status_code == 400
+        assert older_replay.json()["error"] == "invalid_grant"
+
+        invalid_resp = await _refresh_via_http(client, client_id, "not.signed")
+        assert invalid_resp.status_code == 400
+        assert invalid_resp.json()["error"] == "invalid_grant"
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_refresh_upstream_failure_is_retryable_and_preserves_refresh_token(
+    gateway, monkeypatch
+):
+    _upstream_is_live(monkeypatch)
+
+    async with _http(gateway.application) as client:
+        client_id = await _register_via_http(client)
+        first = await _exchange_code_via_http(client, client_id, "flaky-upstream")
+        refresh_token = first["refresh_token"]
+
+        attempts = 0
+
+        async def flaky_upstream():
+            nonlocal attempts
+            attempts += 1
+            return attempts > 1
+
+        monkeypatch.setattr(serve, "_ensure_upstream", flaky_upstream)
+
+        failed = await _refresh_via_http(client, client_id, refresh_token)
+        assert failed.status_code == 503
+        assert failed.json()["error"] == "temporarily_unavailable"
+
+        retried = await _refresh_via_http(client, client_id, refresh_token)
+        assert retried.status_code == 200
+        assert retried.json()["refresh_token"] != refresh_token
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_deployed_public_refresh_token_upgrades_without_re_registration(
+    gateway, monkeypatch
+):
+    _upstream_is_live(monkeypatch)
+
+    async with _http(gateway.application) as client:
+        client_id = await _register_via_http(client)
+        deployed_format_refresh = serve._sign(
+            {
+                "typ": "rt",
+                "exp": time.time() + 600,
+                "cid": client_id,
+                "sub": "rickw@phoneware.us",
+                "aud": "https://mcp.gateway.test/mcp",
+            }
+        )
+
+        upgraded = await _refresh_via_http(client, client_id, deployed_format_refresh)
+        assert upgraded.status_code == 200
+        upgraded_refresh = serve._verify(
+            upgraded.json()["refresh_token"], "rt", allow_no_exp=True
+        )
+        assert upgraded_refresh["fid"].startswith("legacy:")
+        assert upgraded_refresh["seq"] == 1
+
+        replay = await _refresh_via_http(client, client_id, deployed_format_refresh)
+        assert replay.status_code == 200
+        assert replay.json()["refresh_token"] == upgraded.json()["refresh_token"]
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_refresh_and_bearer_recheck_current_allowlist(gateway, monkeypatch):
+    _upstream_is_live(monkeypatch)
+
+    async with _http(gateway.application) as client:
+        client_id = await _register_via_http(client)
+        tokens = await _exchange_code_via_http(client, client_id, "revocation-verifier")
+
+        monkeypatch.setattr(serve, "_ALLOWED_DOMAINS", ())
+        monkeypatch.setattr(serve, "_ALLOWED_EMAILS", ())
+
+        refresh = await _refresh_via_http(client, client_id, tokens["refresh_token"])
+        assert refresh.status_code == 400
+        assert refresh.json()["error"] == "invalid_grant"
+        assert "revoked" in refresh.json()["error_description"]
+
+        bearer, _ = await _rpc(
+            gateway.application, "tools/list", bearer=tokens["access_token"]
+        )
+        assert bearer.status_code == 401
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_legacy_client_credential_registration_gets_re_registration_signal(
+    gateway, monkeypatch
+):
+    _upstream_is_live(monkeypatch)
+
+    async with _http(gateway.application) as client:
+        client_id = await _register_via_http(client)
+        resp = await client.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": client_id,
+                "client_secret": "stale-retired-secret",
+                "refresh_token": "not.used",
+            },
+        )
+
+    body = resp.json()
+    assert resp.status_code == 401
+    assert body["error"] == "invalid_client"
+    assert "register" in body["error_description"]
+    assert "client secret" in body["error_description"]
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_malformed_basic_auth_does_not_wipe_form_client_id(gateway, monkeypatch):
+    _upstream_is_live(monkeypatch)
+    verifier = "malformed-basic"
+
+    async with _http(gateway.application) as client:
+        client_id = await _register_via_http(client)
+        resp = await client.post(
+            "/token",
+            data={
+                "grant_type": "authorization_code",
+                "code": _signed_code(verifier, client_id),
+                "redirect_uri": _CLAUDE_CB,
+                "code_verifier": verifier,
+                "client_id": client_id,
+            },
+            headers={"Authorization": "Basic not-base64"},
+        )
+
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio(loop_scope="module")
+async def test_token_never_asks_the_client_for_a_carrier_credential(
+    gateway, monkeypatch
+):
     """A client presenting no secret at all must succeed: that is the change.
     The carrier credential is the server's, and it is not on this wire."""
     captured = {}
@@ -619,17 +844,25 @@ async def test_mcp_rejects_a_forged_bearer(gateway, monkeypatch):
 
 
 @pytest.mark.asyncio(loop_scope="module")
-async def test_mcp_401s_until_the_upstream_token_is_minted(gateway, monkeypatch):
-    """After a container restart there is no Bandwidth token in memory. The
-    gate must 401 so the client refreshes and the mint runs again."""
-    monkeypatch.setitem(serve._config, "BW_ACCESS_TOKEN", "")
+async def test_mcp_reports_retryable_upstream_failure_without_token_challenge(
+    gateway, monkeypatch
+):
+    """A valid bearer with transient upstream failure remains a valid bearer."""
+
+    async def unavailable():
+        return False
+
+    monkeypatch.setattr(serve, "_ensure_upstream", unavailable)
     async with _http(gateway.application) as client:
         resp = await client.post(
             "/mcp",
             json={"jsonrpc": "2.0", "id": 1},
             headers={"Authorization": f"Bearer {_bearer()}"},
         )
-    assert resp.status_code == 401
+    assert resp.status_code == 503
+    assert resp.json()["error"] == "temporarily_unavailable"
+    assert "www-authenticate" not in {k.lower() for k in resp.headers}
+    assert resp.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.asyncio(loop_scope="module")

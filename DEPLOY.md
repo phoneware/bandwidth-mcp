@@ -27,19 +27,27 @@ API credential lives on the server, in Secret Manager, and nowhere else.
   nobody, never everybody.
 - **Our bearer names a person.** The verified email rides on the authorization
   code and into the issued access and refresh tokens, so an `/mcp` call is
-  attributable to someone rather than to "whoever has the key".
+  attributable to someone rather than to "whoever has the key". `/token`
+  refreshes and `/mcp` bearer requests recheck the current allowlist every time.
 - **Dynamic Client Registration is implemented** (`/register`, RFC 7591), which
   is possible only because `client_id` is ours to mint again. A connector needs
   nothing filled in. Registrations are signed blobs rather than stored rows, so
-  a redeploy does not invalidate an already-connected client. `/register` is
-  open by design, and the redirect-URI policy is what keeps that safe: without
-  it anyone could register `redirect_uri=https://evil.example` and collect a
-  real phoneware.us sign-in.
+  a redeploy does not invalidate an already-connected client. New registrations
+  have no calendar expiry; old signed blobs that include `exp` still honor it.
+  `/register` is open by design, and the redirect-URI policy is what keeps that
+  safe: without it anyone could register `redirect_uri=https://evil.example` and
+  collect a real phoneware.us sign-in.
 - Clients are **public** (`token_endpoint_auth_method: none`): PKCE binds the
   exchange, so there is no client secret for a connector to store or leak.
 - `BW_GATEWAY_TOKEN` (Secret Manager) is the HMAC signing key for codes,
-  bearers and client ids. It never leaves the server. Rotating it invalidates
-  every client registration, which is the intended blunt revoke.
+  bearers, refresh tokens and client ids. It never leaves the server. Rotating
+  it invalidates every signed blob, which is the intended blunt revoke.
+- Refresh tokens are signed credentials with no normal calendar expiry. The
+  only durable OAuth state is a small Firestore cursor document per refresh
+  family containing the current and previous `seq`/`jti` values plus the
+  previous successor. That is enough to make a lost refresh response
+  idempotently recoverable across deploys and to revoke on older replay, without
+  storing bearer or refresh-token strings.
 - Bandwidth callback routes + health stay open (they deliver async events, not
   account control).
 - Authorization follows the 2026-07-28 MCP spec: `iss` on every authorization
@@ -48,19 +56,15 @@ API credential lives on the server, in Secret Manager, and nowhere else.
 - Tools attach the upstream token per-request from the live config
   (`servers.py` `_LiveConfigTokenAuth`), so mint/refresh needs no restart.
   The upstream token is minted from the server-side credential on demand and
-  refreshed as it ages, so a cold container heals itself instead of 401ing a
-  client that did nothing wrong.
-- `BW_GATEWAY_TOKEN` (Secret Manager) is the HMAC signing key for codes and
-  bearers. It never leaves the server. Bandwidth callback routes + health
-  stay open (they deliver async events, not account control).
+  refreshed as it ages. A transient upstream failure with a valid bearer returns
+  `temporarily_unavailable` instead of an invalid-token challenge.
 - **The MCP protocol is stateless** (2026-07-28: no handshake, no session id),
   and handshake-era clients are served sessionlessly too. That removes session
   affinity as a reason to pin one instance.
-- What still pins us to one instance is OUR state, not the protocol's: the
-  in-memory event store, the webhook callbacks, and the minted upstream token
-  all live in process memory, so `--min-instances=1`, `--max-instances=1`
-  stands (do not scale to zero or fan out). Moving the minted token to Secret
-  Manager or Firestore is what would lift that, and nothing here does it yet.
+  The Cloud Run runtime service account
+  `859122914438-compute@developer.gserviceaccount.com` already has
+  `roles/datastore.user` in the project, which is enough for the Firestore
+  refresh cursor ledger.
 
 ## Coverage note
 The live deployment runs the **numbers / porting / carrier / billing** surface

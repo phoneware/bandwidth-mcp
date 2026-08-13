@@ -66,12 +66,18 @@ import os
 import secrets as _secrets
 import time
 from html import escape
+from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import uvicorn
 from starlette.applications import Starlette
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from starlette.responses import (
+    HTMLResponse,
+    JSONResponse,
+    PlainTextResponse,
+    RedirectResponse,
+)
 from starlette.routing import Mount, Route
 
 os.environ.setdefault("BW_MCP_TRANSPORT", "streamable-http")
@@ -127,14 +133,173 @@ if not _ALLOWED_DOMAINS and not _ALLOWED_EMAILS:
 
 _CALLBACK_URL = f"{_BASE}/auth/google/callback"
 
-_CODE_TTL = 300           # authorization codes: 5 minutes
-_STATE_TTL = 600          # the Google round trip: 10 minutes
-_ACCESS_TTL = 50 * 60     # our bearer: refresh comfortably inside the upstream ~1h
-_REFRESH_TTL = 60 * 86400
-# Client registrations are meant to outlive deploys: a client registers once and
-# presents that id forever. They are signed blobs rather than stored rows, so
-# nothing to lose on restart, but _verify still wants an exp.
-_CLIENT_TTL = 3650 * 86400
+_CODE_TTL = 300  # authorization codes: 5 minutes
+_STATE_TTL = 600  # the Google round trip: 10 minutes
+_ACCESS_TTL = 50 * 60  # our bearer: refresh comfortably inside the upstream ~1h
+# Public client registrations and refresh credentials have no calendar expiry.
+# Existing signed blobs that already carry exp still honor it. Revocation is
+# explicit: every refresh and bearer request rechecks the current Google
+# allowlist, and rotating BW_GATEWAY_TOKEN invalidates every signed blob.
+
+
+class RefreshLedgerError(Exception):
+    """Durable refresh cursor storage could not complete atomically."""
+
+
+class RefreshFamilyLedger:
+    """Small durable cursor for refresh-token family replay handling.
+
+    The signed refresh token remains the credential. The ledger stores only the
+    current and immediately previous cursor fields for a family, so deploys can
+    distinguish an immediate duplicate retry from an older replay without
+    storing bearer or refresh tokens.
+    """
+
+    def start(self, family_id: str, seq: int, jti: str, now: float) -> None:
+        raise NotImplementedError
+
+    def rotate(self, family_id: str, seq: int, jti: str, now: float) -> dict[str, Any]:
+        raise NotImplementedError
+
+
+def _family_document(collection: Any, family_id: str) -> Any:
+    return collection.document(hashlib.sha256(family_id.encode()).hexdigest())
+
+
+class FirestoreRefreshFamilyLedger(RefreshFamilyLedger):
+    def __init__(self) -> None:
+        from google.cloud import firestore
+
+        self._firestore = firestore
+        self._client = firestore.Client()
+        self._collection = self._client.collection("bandwidth_mcp_refresh_families")
+
+    def start(self, family_id: str, seq: int, jti: str, now: float) -> None:
+        ref = _family_document(self._collection, family_id)
+        try:
+            ref.set(
+                {
+                    "current_seq": seq,
+                    "current_jti": jti,
+                    "updated_at": now,
+                    "revoked": False,
+                }
+            )
+        except Exception as exc:
+            raise RefreshLedgerError from exc
+
+    def rotate(self, family_id: str, seq: int, jti: str, now: float) -> dict[str, Any]:
+        ref = _family_document(self._collection, family_id)
+        tx = self._client.transaction()
+
+        @self._firestore.transactional
+        def _rotate(transaction: Any) -> dict[str, Any]:
+            snap = ref.get(transaction=transaction)
+            data = snap.to_dict() if snap.exists else {}
+            if data.get("revoked"):
+                return {"status": "invalid"}
+
+            current_seq = data.get("current_seq")
+            current_jti = data.get("current_jti")
+            if (
+                current_seq is None
+                and current_jti is None
+                or (current_seq == seq and current_jti == jti)
+            ):
+                next_seq = seq + 1
+                next_jti = _secrets.token_urlsafe(18)
+                transaction.set(
+                    ref,
+                    {
+                        "current_seq": next_seq,
+                        "current_jti": next_jti,
+                        "previous_seq": seq,
+                        "previous_jti": jti,
+                        "previous_successor_seq": next_seq,
+                        "previous_successor_jti": next_jti,
+                        "updated_at": now,
+                        "revoked": False,
+                    },
+                )
+                return {"status": "rotated", "seq": next_seq, "jti": next_jti}
+
+            if data.get("previous_seq") == seq and data.get("previous_jti") == jti:
+                return {
+                    "status": "duplicate",
+                    "seq": data["previous_successor_seq"],
+                    "jti": data["previous_successor_jti"],
+                }
+
+            transaction.set(ref, {"revoked": True, "updated_at": now}, merge=True)
+            return {"status": "invalid"}
+
+        try:
+            return _rotate(tx)
+        except Exception as exc:
+            raise RefreshLedgerError from exc
+
+
+class MemoryRefreshFamilyLedger(RefreshFamilyLedger):
+    def __init__(self) -> None:
+        self.families: dict[str, dict[str, Any]] = {}
+
+    def start(self, family_id: str, seq: int, jti: str, now: float) -> None:
+        self.families[family_id] = {
+            "current_seq": seq,
+            "current_jti": jti,
+            "updated_at": now,
+            "revoked": False,
+        }
+
+    def rotate(self, family_id: str, seq: int, jti: str, now: float) -> dict[str, Any]:
+        data = self.families.get(family_id)
+        if data is None:
+            data = {}
+            self.families[family_id] = data
+        if data.get("revoked"):
+            return {"status": "invalid"}
+        current_seq = data.get("current_seq")
+        current_jti = data.get("current_jti")
+        if (
+            current_seq is None
+            and current_jti is None
+            or (current_seq == seq and current_jti == jti)
+        ):
+            next_seq = seq + 1
+            next_jti = _secrets.token_urlsafe(18)
+            data.update(
+                {
+                    "current_seq": next_seq,
+                    "current_jti": next_jti,
+                    "previous_seq": seq,
+                    "previous_jti": jti,
+                    "previous_successor_seq": next_seq,
+                    "previous_successor_jti": next_jti,
+                    "updated_at": now,
+                    "revoked": False,
+                }
+            )
+            return {"status": "rotated", "seq": next_seq, "jti": next_jti}
+        if data.get("previous_seq") == seq and data.get("previous_jti") == jti:
+            return {
+                "status": "duplicate",
+                "seq": data["previous_successor_seq"],
+                "jti": data["previous_successor_jti"],
+            }
+        data["revoked"] = True
+        data["updated_at"] = now
+        return {"status": "invalid"}
+
+
+_REFRESH_LEDGER: RefreshFamilyLedger | None = None
+
+
+def _refresh_ledger() -> RefreshFamilyLedger:
+    global _REFRESH_LEDGER
+    if _REFRESH_LEDGER is None:
+        _REFRESH_LEDGER = FirestoreRefreshFamilyLedger()
+    return _REFRESH_LEDGER
+
 
 _EXTRA_REDIRECTS = tuple(_env_list("BW_OAUTH_REDIRECT_ALLOW"))
 
@@ -154,14 +319,20 @@ def _sign(payload: dict) -> str:
     return f"{body}.{sig}"
 
 
-def _verify(token: str, typ: str) -> dict | None:
+def _verify(token: str, typ: str, *, allow_no_exp: bool = False) -> dict | None:
     try:
         body, sig = token.split(".")
         expect = _b64u(hmac.new(_KEY_BYTES, body.encode(), hashlib.sha256).digest())
         if not hmac.compare_digest(sig, expect):
             return None
         payload = json.loads(_b64u_dec(body))
-        if payload.get("typ") != typ or payload.get("exp", 0) < time.time():
+        if payload.get("typ") != typ:
+            return None
+        expires_at = payload.get("exp")
+        if expires_at is None:
+            if not allow_no_exp:
+                return None
+        elif not isinstance(expires_at, (int, float)) or expires_at < time.time():
             return None
         return payload
     except Exception:
@@ -179,7 +350,11 @@ def _redirect_allowed(uri: str) -> bool:
     if any(uri.startswith(p) for p in _EXTRA_REDIRECTS):
         return True
     u = urlparse(uri)
-    if u.scheme == "https" and u.hostname in ("claude.ai", "claude.com") and u.path.startswith("/api/mcp/auth_callback"):
+    if (
+        u.scheme == "https"
+        and u.hostname in ("claude.ai", "claude.com")
+        and u.path.startswith("/api/mcp/auth_callback")
+    ):
         return True
     # Header-capable local clients (Claude Code) use a loopback callback.
     if u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1"):
@@ -206,9 +381,10 @@ async def _mint_upstream() -> None:
 
 
 def _upstream_live() -> bool:
-    return bool(_config.get("BW_ACCESS_TOKEN")) and _config.get(
-        "BW_TOKEN_EXP", 0
-    ) > time.time() + 60
+    return (
+        bool(_config.get("BW_ACCESS_TOKEN"))
+        and _config.get("BW_TOKEN_EXP", 0) > time.time() + 60
+    )
 
 
 async def _ensure_upstream() -> bool:
@@ -291,13 +467,18 @@ async def register(request: Request):
         body = await request.json()
     except Exception:
         return JSONResponse(
-            {"error": "invalid_client_metadata", "error_description": "body must be JSON"},
+            {
+                "error": "invalid_client_metadata",
+                "error_description": "body must be JSON",
+            },
             status_code=400,
         )
 
     redirect_uris = body.get("redirect_uris")
-    if not isinstance(redirect_uris, list) or not redirect_uris or not all(
-        isinstance(u, str) and u for u in redirect_uris
+    if (
+        not isinstance(redirect_uris, list)
+        or not redirect_uris
+        or not all(isinstance(u, str) and u for u in redirect_uris)
     ):
         return JSONResponse(
             {
@@ -320,7 +501,6 @@ async def register(request: Request):
     client_id = _sign(
         {
             "typ": "cli",
-            "exp": time.time() + _CLIENT_TTL,
             "ru": redirect_uris,
             "n": _secrets.token_hex(8),
         }
@@ -346,17 +526,21 @@ async def register(request: Request):
 
 
 def _client_redirects(client_id: str) -> list[str] | None:
-    payload = _verify(client_id, "cli")
+    payload = _verify(client_id, "cli", allow_no_exp=True)
     if not payload:
         return None
     uris = payload.get("ru")
     return uris if isinstance(uris, list) else None
 
 
-def _error_redirect(redirect_uri: str, error: str, state: str | None) -> RedirectResponse:
+def _error_redirect(
+    redirect_uri: str, error: str, state: str | None
+) -> RedirectResponse:
     params = {"error": error, "iss": _BASE, **({"state": state} if state else {})}
     joiner = "&" if "?" in redirect_uri else "?"
-    return RedirectResponse(f"{redirect_uri}{joiner}{urlencode(params)}", status_code=302)
+    return RedirectResponse(
+        f"{redirect_uri}{joiner}{urlencode(params)}", status_code=302
+    )
 
 
 async def authorize(request: Request):
@@ -372,7 +556,11 @@ async def authorize(request: Request):
         return PlainTextResponse(
             "unknown client_id: register at /register first", status_code=401
         )
-    if not redirect_uri or redirect_uri not in registered or not _redirect_allowed(redirect_uri):
+    if (
+        not redirect_uri
+        or redirect_uri not in registered
+        or not _redirect_allowed(redirect_uri)
+    ):
         return PlainTextResponse("invalid redirect_uri", status_code=400)
 
     challenge = q.get("code_challenge", "")
@@ -424,7 +612,9 @@ async def google_callback(request: Request):
 
     pending = _verify(q.get("state", ""), "pend")
     if not pending:
-        return _refused("This sign-in link has expired. Start again from your client.", 400)
+        return _refused(
+            "This sign-in link has expired. Start again from your client.", 400
+        )
 
     redirect_uri = pending["ru"]
     client_state = pending.get("st") or None
@@ -470,46 +660,169 @@ async def google_callback(request: Request):
         **({"state": client_state} if client_state else {}),
     }
     joiner = "&" if "?" in redirect_uri else "?"
-    return RedirectResponse(f"{redirect_uri}{joiner}{urlencode(params)}", status_code=302)
+    return RedirectResponse(
+        f"{redirect_uri}{joiner}{urlencode(params)}", status_code=302
+    )
 
 
-def _issue_tokens(client_id: str, subject: str, resource: str = "") -> JSONResponse:
-    now = time.time()
+def _access_token(client_id: str, subject: str, resource: str, now: float) -> str:
     aud = {"aud": resource} if resource else {}
-    common = {"cid": client_id, "sub": subject, **aud}
-    at = _sign({"typ": "at", "exp": now + _ACCESS_TTL, **common})
-    rt = _sign({"typ": "rt", "exp": now + _REFRESH_TTL, **common})
+    return _sign(
+        {
+            "typ": "at",
+            "exp": now + _ACCESS_TTL,
+            "cid": client_id,
+            "sub": subject,
+            **aud,
+        }
+    )
+
+
+def _refresh_token(
+    client_id: str,
+    subject: str,
+    resource: str,
+    family_id: str,
+    seq: int,
+    jti: str,
+) -> str:
+    aud = {"aud": resource} if resource else {}
+    return _sign(
+        {
+            "typ": "rt",
+            "fid": family_id,
+            "seq": seq,
+            "jti": jti,
+            "cid": client_id,
+            "sub": subject,
+            **aud,
+        }
+    )
+
+
+def _token_response(access_token: str, refresh_token: str) -> JSONResponse:
     return JSONResponse(
         {
-            "access_token": at,
+            "access_token": access_token,
             "token_type": "Bearer",
             "expires_in": _ACCESS_TTL,
-            "refresh_token": rt,
+            "refresh_token": refresh_token,
             "scope": "bandwidth",
         },
         headers={"Cache-Control": "no-store"},
     )
 
 
-def _token_error(error: str, status: int = 400) -> JSONResponse:
-    return JSONResponse({"error": error}, status_code=status, headers={"Cache-Control": "no-store"})
+def _new_token_response(client_id: str, subject: str, resource: str) -> JSONResponse:
+    now = time.time()
+    family_id = _secrets.token_urlsafe(18)
+    seq = 0
+    jti = _secrets.token_urlsafe(18)
+    _refresh_ledger().start(family_id, seq, jti, now)
+    return _token_response(
+        _access_token(client_id, subject, resource, now),
+        _refresh_token(client_id, subject, resource, family_id, seq, jti),
+    )
+
+
+def _rotated_token_response(
+    client_id: str, subject: str, resource: str, refresh_from: dict
+) -> JSONResponse:
+    now = time.time()
+    rotation = _refresh_ledger().rotate(
+        refresh_from["fid"], refresh_from["seq"], refresh_from["jti"], now
+    )
+    if rotation["status"] == "invalid":
+        raise ValueError("refresh token replay")
+    return _token_response(
+        _access_token(client_id, subject, resource, now),
+        _refresh_token(
+            client_id,
+            subject,
+            resource,
+            refresh_from["fid"],
+            rotation["seq"],
+            rotation["jti"],
+        ),
+    )
+
+
+def _token_error(
+    error: str, status: int = 400, description: str | None = None
+) -> JSONResponse:
+    body = {
+        "error": error,
+        **({"error_description": description} if description else {}),
+    }
+    return JSONResponse(body, status_code=status, headers={"Cache-Control": "no-store"})
+
+
+def _valid_refresh_payload(refresh_token: str, client_id: str) -> dict | None:
+    payload = _verify(refresh_token, "rt", allow_no_exp=True)
+    if not payload or payload.get("cid") != client_id:
+        return None
+    family_id = payload.get("fid")
+    refresh_seq = payload.get("seq")
+    token_id = payload.get("jti")
+    if family_id is None and refresh_seq is None and token_id is None:
+        # Tokens already issued by the deployed public-client gateway did not
+        # carry a family cursor. Accept a still-valid public refresh credential
+        # and roll it into the current family format so rollout does not force
+        # re-registration.
+        legacy_family = _b64u(
+            hmac.new(_KEY_BYTES, refresh_token.encode(), hashlib.sha256).digest()
+        )
+        return {
+            **payload,
+            "fid": f"legacy:{legacy_family}",
+            "seq": 0,
+            "jti": "legacy",
+        }
+    if (
+        not isinstance(family_id, str)
+        or not family_id
+        or not isinstance(refresh_seq, int)
+        or refresh_seq < 0
+        or not isinstance(token_id, str)
+        or not token_id
+    ):
+        return None
+    return payload
 
 
 async def token(request: Request):
     form = await request.form()
     # Public clients: the client_id is the signed registration and PKCE binds
-    # the exchange. A client_secret may be presented by an older connector; it
-    # is ignored rather than rejected, because it no longer means anything.
+    # the exchange. A non-empty client_secret means an old client-credential
+    # registration is still cached; fail deterministically so the client
+    # re-registers instead of treating the Bandwidth secret as usable here.
     client_id = form.get("client_id", "")
-    if not client_id:
-        auth = request.headers.get("authorization", "")
-        if auth.lower().startswith("basic "):
-            try:
-                client_id = base64.b64decode(auth[6:]).decode().partition(":")[0]
-            except Exception:
-                client_id = ""
+    client_id = client_id if isinstance(client_id, str) else ""
+    secret_present = bool(form.get("client_secret"))
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("basic "):
+        try:
+            decoded = base64.b64decode(auth[6:]).decode()
+            basic_client_id, _, basic_secret = decoded.partition(":")
+            secret_present = secret_present or bool(basic_secret)
+            if not client_id:
+                client_id = basic_client_id
+        except Exception:
+            # A malformed Authorization header must not erase a valid
+            # form-encoded public client_id.
+            pass
+    if secret_present:
+        return _token_error(
+            "invalid_client",
+            401,
+            "public clients must register again without a client secret",
+        )
     if not client_id or _client_redirects(client_id) is None:
-        return _token_error("invalid_client", 401)
+        return _token_error(
+            "invalid_client",
+            401,
+            "unknown client_id: register at /register first",
+        )
 
     grant = form.get("grant_type", "")
     # RFC 8707: the client names the MCP server it wants this token for.
@@ -519,14 +832,18 @@ async def token(request: Request):
 
     if grant == "authorization_code":
         payload = _verify(form.get("code", ""), "code")
-        if not payload or payload.get("cid") != client_id or payload.get("ru") != form.get("redirect_uri", ""):
+        if (
+            not payload
+            or payload.get("cid") != client_id
+            or payload.get("ru") != form.get("redirect_uri", "")
+        ):
             return _token_error("invalid_grant")
         verifier = form.get("code_verifier", "")
         if _b64u(hashlib.sha256(verifier.encode()).digest()) != payload.get("cc"):
             return _token_error("invalid_grant")
     elif grant == "refresh_token":
-        payload = _verify(form.get("refresh_token", ""), "rt")
-        if not payload or payload.get("cid") != client_id:
+        payload = _valid_refresh_payload(form.get("refresh_token", ""), client_id)
+        if not payload:
             return _token_error("invalid_grant")
     else:
         return _token_error("unsupported_grant_type")
@@ -538,12 +855,26 @@ async def token(request: Request):
     subject = payload.get("sub", "")
     if not subject:
         return _token_error("invalid_grant")
+    if not gauth.is_email_allowed(subject, _ALLOWED_DOMAINS, _ALLOWED_EMAILS):
+        return _token_error("invalid_grant", description="authorization revoked")
     if not await _ensure_upstream():
         return _token_error("temporarily_unavailable", 503)
 
-    return _issue_tokens(
-        client_id, subject, resource or payload.get("res", "") or payload.get("aud", "")
-    )
+    try:
+        if grant == "refresh_token":
+            return _rotated_token_response(
+                client_id,
+                subject,
+                resource or payload.get("res", "") or payload.get("aud", ""),
+                payload,
+            )
+        return _new_token_response(
+            client_id, subject, resource or payload.get("res", "")
+        )
+    except RefreshLedgerError:
+        return _token_error("temporarily_unavailable", 503)
+    except ValueError:
+        return _token_error("invalid_grant")
 
 
 # ── MCP gate ────────────────────────────────────────────────────────────────
@@ -567,10 +898,11 @@ async def gated(scope, receive, send):
         claims = (
             _verify(authz[7:], "at") if authz.lower().startswith("bearer ") else None
         )
-        # The upstream token is ours to keep alive now, so a cold container
-        # refreshes here instead of turning a valid bearer into a 401.
-        ok = claims is not None and await _ensure_upstream()
-        if not ok:
+        subject = claims.get("sub", "") if claims else ""
+        subject_allowed = bool(subject) and gauth.is_email_allowed(
+            subject, _ALLOWED_DOMAINS, _ALLOWED_EMAILS
+        )
+        if not subject_allowed:
             headers = [
                 (
                     b"www-authenticate",
@@ -578,11 +910,30 @@ async def gated(scope, receive, send):
                 ),
                 (b"content-type", b"application/json"),
             ]
-            await send({"type": "http.response.start", "status": 401, "headers": headers})
+            await send(
+                {"type": "http.response.start", "status": 401, "headers": headers}
+            )
             await send(
                 {
                     "type": "http.response.body",
                     "body": b'{"error":"invalid_token"}',
+                }
+            )
+            return
+        # A valid bearer with a transient upstream failure is retryable service
+        # unavailability, not an invalid-token challenge.
+        if not await _ensure_upstream():
+            headers = [
+                (b"content-type", b"application/json"),
+                (b"cache-control", b"no-store"),
+            ]
+            await send(
+                {"type": "http.response.start", "status": 503, "headers": headers}
+            )
+            await send(
+                {
+                    "type": "http.response.body",
+                    "body": b'{"error":"temporarily_unavailable"}',
                 }
             )
             return

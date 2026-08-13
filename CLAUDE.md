@@ -195,7 +195,9 @@ none); its only job is to say **who** is connecting.
 
 1. Client POSTs `/register` (RFC 7591) and gets a `client_id`. It is a public
    client: no secret, PKCE binds the exchange. The id is a signed blob listing
-   the redirect URIs, so registrations cost no storage and survive a redeploy.
+   the redirect URIs, so registrations cost no client-row storage and survive a
+   redeploy. New registrations have no calendar expiry; old signed
+   registrations that include `exp` still honor it until the client re-registers.
 2. Client hits `/authorize`. **Nothing is approved here.** We check the client
    and its redirect URI, stash the request in a signed `state`, and redirect to
    Google.
@@ -205,10 +207,17 @@ none); its only job is to say **who** is connecting.
    allowlist means a 403 page and no code. On it, we mint our authorization
    code carrying the verified email.
 4. Client calls `/token` with the code and PKCE verifier. No credential is
-   asked for or accepted. We issue our signed bearer + refresh token, both
-   carrying the email as `sub`.
-5. `/mcp` requires our bearer. Tools attach the live upstream token per-request
-   (`servers.py` `_LiveConfigTokenAuth`), so mint/refresh needs no restart.
+   asked for or accepted. We issue our signed bearer + signed refresh token,
+   both carrying the email as `sub`. Refresh credentials have no normal
+   calendar expiry; explicit removal from the allowlist or signing-key rotation
+   still revokes them.
+5. Refresh rotation uses a small Firestore ledger containing only bounded cursor
+   metadata for the current and immediately previous token in a family. The
+   signed refresh token remains the credential; Firestore lets a deploy or lost
+   HTTP response recover the already-issued successor and reject older replay.
+6. `/mcp` requires our bearer and rechecks the live allowlist on every request.
+   Tools attach the live upstream token per-request (`servers.py`
+   `_LiveConfigTokenAuth`), so mint/refresh needs no restart.
 
 **The Bandwidth credential never leaves the server.** It is mounted from Secret
 Manager (`BW_CLIENT_ID`/`BW_CLIENT_SECRET`) and the upstream token is minted

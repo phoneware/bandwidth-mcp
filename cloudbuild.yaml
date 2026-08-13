@@ -30,7 +30,8 @@ steps:
         # the MCP 2026-07-28 (stateless) release, still a beta, hence the exact pin.
         pip install --no-cache-dir "fastmcp==4.0.0b1" "mcp>=2.0.0,<3" \
           "httpx~=0.28.0" "httpx2~=2.9" \
-          "pyyaml~=6.0.0" "werkzeug>=3.1.4" uvicorn pytest pytest-asyncio pytest-httpx
+          "pyyaml~=6.0.0" "werkzeug>=3.1.4" "google-cloud-firestore==2.21.0" \
+          uvicorn pytest pytest-asyncio pytest-httpx
         python -m pytest -q
 
   - id: build
@@ -85,6 +86,10 @@ steps:
       #                          place. Splitting it (id in a CI variable, secret
       #                          in GCP) means two systems to keep in step and
       #                          two ways to half-configure the gate.
+      # Firestore refresh-family cursor writes use the Cloud Run runtime service
+      # account. Verified prerequisite: 859122914438-compute@developer.gserviceaccount.com
+      # already has roles/datastore.user in the project; no repo-local IAM patch
+      # is required here.
       - --set-secrets=BW_GATEWAY_TOKEN=bandwidth-gateway-token:latest,BW_CLIENT_ID=bandwidth-client-id:latest,BW_CLIENT_SECRET=bandwidth-client-secret:latest,BW_OAUTH_CLIENT_ID=bandwidth-mcp-google-client-id:latest,BW_OAUTH_CLIENT_SECRET=bandwidth-mcp-google-secret:latest
       # BW_MCP_BASE_URL should be the service's public URL once known (needed for
       # voice/messaging callbacks). BW_MCP_PROFILE trims the tool surface.

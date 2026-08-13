@@ -136,6 +136,7 @@ _CALLBACK_URL = f"{_BASE}/auth/google/callback"
 _CODE_TTL = 300  # authorization codes: 5 minutes
 _STATE_TTL = 600  # the Google round trip: 10 minutes
 _ACCESS_TTL = 50 * 60  # our bearer: refresh comfortably inside the upstream ~1h
+_REFRESH_RETRY_WINDOW = 30  # tolerate one immediate client/network retry
 # Public client registrations and refresh credentials have no calendar expiry.
 # Existing signed blobs that already carry exp still honor it. Revocation is
 # explicit: every refresh and bearer request rechecks the current Google
@@ -144,6 +145,16 @@ _ACCESS_TTL = 50 * 60  # our bearer: refresh comfortably inside the upstream ~1h
 
 class RefreshLedgerError(Exception):
     """Durable refresh cursor storage could not complete atomically."""
+
+
+def _is_recent_duplicate(data: dict[str, Any], seq: int, jti: str, now: float) -> bool:
+    if data.get("previous_seq") != seq or data.get("previous_jti") != jti:
+        return False
+    updated_at = data.get("updated_at")
+    if not isinstance(updated_at, (int, float)):
+        return False
+    age = now - updated_at
+    return 0 <= age <= _REFRESH_RETRY_WINDOW
 
 
 class RefreshFamilyLedger:
@@ -223,7 +234,7 @@ class FirestoreRefreshFamilyLedger(RefreshFamilyLedger):
                 )
                 return {"status": "rotated", "seq": next_seq, "jti": next_jti}
 
-            if data.get("previous_seq") == seq and data.get("previous_jti") == jti:
+            if _is_recent_duplicate(data, seq, jti, now):
                 return {
                     "status": "duplicate",
                     "seq": data["previous_successor_seq"],
@@ -280,7 +291,7 @@ class MemoryRefreshFamilyLedger(RefreshFamilyLedger):
                 }
             )
             return {"status": "rotated", "seq": next_seq, "jti": next_jti}
-        if data.get("previous_seq") == seq and data.get("previous_jti") == jti:
+        if _is_recent_duplicate(data, seq, jti, now):
             return {
                 "status": "duplicate",
                 "seq": data["previous_successor_seq"],

@@ -136,6 +136,111 @@ def refresh_ledger(monkeypatch):
     return ledger
 
 
+class _FakeSnapshot:
+    def __init__(self, data):
+        self.exists = bool(data)
+        self._data = data
+
+    def to_dict(self):
+        return dict(self._data)
+
+
+class _FakeDocument:
+    def __init__(self):
+        self.data = {}
+
+    def get(self, transaction=None):
+        return _FakeSnapshot(self.data)
+
+    def set(self, data):
+        self.data = dict(data)
+
+
+class _FakeCollection:
+    def __init__(self, document):
+        self.document_ref = document
+
+    def document(self, _document_id):
+        return self.document_ref
+
+
+class _FakeTransaction:
+    def set(self, document, data, merge=False):
+        if merge:
+            document.data.update(data)
+        else:
+            document.data = dict(data)
+
+
+class _FakeClient:
+    def __init__(self, transaction):
+        self.transaction_ref = transaction
+
+    def transaction(self):
+        return self.transaction_ref
+
+
+class _FakeFirestore:
+    @staticmethod
+    def transactional(operation):
+        return operation
+
+
+def _firestore_refresh_ledger():
+    document = _FakeDocument()
+    transaction = _FakeTransaction()
+    ledger = serve.FirestoreRefreshFamilyLedger.__new__(
+        serve.FirestoreRefreshFamilyLedger
+    )
+    ledger._firestore = _FakeFirestore()
+    ledger._client = _FakeClient(transaction)
+    ledger._collection = _FakeCollection(document)
+    return ledger
+
+
+@pytest.mark.parametrize(
+    "ledger_factory",
+    [serve.MemoryRefreshFamilyLedger, _firestore_refresh_ledger],
+)
+def test_duplicate_refresh_retry_window_is_bounded_and_revokes_stale_replay(
+    ledger_factory,
+):
+    ledger = ledger_factory()
+    rotated_at = 1_700_000_000.0
+    ledger.start("family", 0, "original", rotated_at - 1)
+
+    rotated = ledger.rotate("family", 0, "original", rotated_at)
+    assert rotated["status"] == "rotated"
+
+    immediate_retry = ledger.rotate(
+        "family",
+        0,
+        "original",
+        rotated_at + serve._REFRESH_RETRY_WINDOW,
+    )
+    assert immediate_retry == {
+        "status": "duplicate",
+        "seq": rotated["seq"],
+        "jti": rotated["jti"],
+    }
+
+    stale_replay = ledger.rotate(
+        "family",
+        0,
+        "original",
+        rotated_at + serve._REFRESH_RETRY_WINDOW + 1,
+    )
+    assert stale_replay == {"status": "invalid"}
+
+    successor_after_replay = ledger.rotate(
+        "family",
+        rotated["seq"],
+        rotated["jti"],
+        rotated_at + serve._REFRESH_RETRY_WINDOW + 2,
+    )
+    assert successor_after_replay == {"status": "invalid"}
+
+
 def _upstream_is_live(monkeypatch) -> None:
     """Pretend Bandwidth has already handed us a token."""
     monkeypatch.setattr(serve, "_ensure_upstream", _always_live)

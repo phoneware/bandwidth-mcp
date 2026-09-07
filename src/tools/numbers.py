@@ -1,7 +1,7 @@
 """Numbers / porting tools over the Bandwidth Dashboard (Numbers) API.
 
 The upstream server ships no Numbers-API tools ("the API is XML-based and
-from_openapi sends JSON" — profiles.py), which leaves out the operations a
+from_openapi sends JSON", profiles.py), which leaves out the operations a
 carrier reseller actually lives in: port-in (LNP) orders, available-number
 search, new-number orders, and sites. These are hand-written tools in the same
 style as tools/discovery.py: authenticated XML calls against
@@ -15,9 +15,10 @@ disconnects, port-in create/supp/cancel, LOA upload) register under
 
 import base64
 import re
-from datetime import datetime
+from datetime import datetime, time
+from functools import lru_cache
 from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
-
+from zoneinfo import ZoneInfo
 import httpx
 from mcp.types import ToolAnnotations
 
@@ -32,6 +33,18 @@ _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWor
 # DRAFT, SUBMITTED, PENDING_DOCUMENTS, EXCEPTION, REQUESTED_SUPP, FOC,
 # REQUESTED_CANCEL, CANCELLED, COMPLETE.
 _PENDING_LNP_STATUSES = "draft,submitted,pending_documents,exception,requested_supp,foc,requested_cancel"
+
+
+@lru_cache(maxsize=1)
+def _eastern() -> ZoneInfo:
+    """America/New_York, resolved on first use.
+
+    Every activation window Bandwidth publishes is stated in Eastern, so the
+    conversion belongs here rather than in a caller computing its own DST
+    offset. Resolved lazily and cached: a container missing tzdata should cost
+    the one tool that schedules a time, not every tool in this module at
+    import."""
+    return ZoneInfo("America/New_York")
 
 
 def _xml_to_data(el):
@@ -217,6 +230,160 @@ _UPLOAD_TYPES = {
     "txt": "text/plain",
 }
 
+def _sanitize_customer_order_id(value: str) -> str:
+    """Sanitize customer_order_id to Bandwidth's accepted charset (error 7318).
+
+    Alphanumerics, dashes, and spaces only; max 255 characters. Dotted ticket
+    numbers (e.g. T20260806.0030) convert dots to dashes (T20260806-0030).
+    Runs of whitespace are collapsed. Returns an empty string if nothing usable
+    remains.
+    """
+    if not value:
+        return ""
+    s = re.sub(r"(?<=[a-zA-Z0-9])\.(?=[a-zA-Z0-9])", "-", value)
+    s = re.sub(r"[^a-zA-Z0-9 -]", "", s)
+    s = re.sub(r"\s+", " ", s).strip(" -")
+    return s[:255]
+
+
+def _extract_sites(payload: dict) -> list[dict]:
+    """Extract the site list from Bandwidth's /sites response."""
+    sites_wrapper = payload
+    if isinstance(sites_wrapper, dict) and "SitesResponse" in sites_wrapper:
+        sites_wrapper = sites_wrapper["SitesResponse"]
+    if isinstance(sites_wrapper, dict) and "Sites" in sites_wrapper:
+        sites_wrapper = sites_wrapper["Sites"]
+    if isinstance(sites_wrapper, dict) and "Site" in sites_wrapper:
+        site_val = sites_wrapper["Site"]
+        if isinstance(site_val, list):
+            return site_val
+        if isinstance(site_val, dict):
+            return [site_val]
+    return []
+
+
+async def _resolve_site(
+    config: dict, site_id: str, site_name: str, account_id: str = ""
+) -> str:
+    """Resolve site_id and site_name against the account's sites.
+
+    Exactly one case-insensitive site_name match proceeds. Zero matches or
+    several fail with a ValueError listing candidate names. Passing both
+    site_id and site_name is an error unless they agree. Passing neither is an
+    error.
+    """
+    sid = str(site_id).strip()
+    sname = str(site_name).strip()
+    if not sid and not sname:
+        raise ValueError(
+            "site_id or site_name is required: provide a destination site by ID or by name"
+        )
+    if sname:
+        sites_payload = await _dashboard_json(config, "sites", account_id)
+        sites = _extract_sites(sites_payload)
+        candidate_names = [str(s.get("Name", "")) for s in sites if s.get("Name")]
+        target = sname.lower()
+        matches = [
+            s for s in sites if str(s.get("Name", "")).strip().lower() == target
+        ]
+        if not matches:
+            available = (
+                ", ".join(f"{n!r}" for n in candidate_names)
+                if candidate_names
+                else "(none)"
+            )
+            raise ValueError(
+                f"Unknown site_name {site_name!r}. Available sites: {available}"
+            )
+        if len(matches) > 1:
+            matching_desc = ", ".join(
+                f"{m.get('Name')!r} (id: {m.get('Id')})" for m in matches
+            )
+            raise ValueError(
+                f"Ambiguous site_name {site_name!r} matches multiple sites: {matching_desc}"
+            )
+        resolved_id = str(matches[0].get("Id", "")).strip()
+        if sid and sid != resolved_id:
+            raise ValueError(
+                f"site_id {site_id!r} and site_name {site_name!r} disagree: "
+                f"{site_name!r} has site_id {resolved_id!r}"
+            )
+        return resolved_id
+    return sid
+
+
+def _format_foc_date_time(foc_date: str, foc_time: str) -> tuple[str, bool]:
+    """Format requested FOC date and optional time.
+
+    Returns (formatted_date_str, is_triggered).
+    If foc_time is given, localizes to Eastern time (America/New_York) and
+    formats as %Y-%m-%dT%H:%M:00%z with Triggered=True.
+    If only foc_date is given, returns the bare date and Triggered=False.
+    """
+    date_str = foc_date.strip()
+    time_str = foc_time.strip()
+    if not date_str:
+        return "", False
+    if not time_str:
+        return date_str, False
+    dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M").replace(
+        tzinfo=_eastern()
+    )
+    return dt.strftime("%Y-%m-%dT%H:%M:00%z"), True
+
+
+async def _upload_port_in_document(
+    config: dict,
+    order_id: str,
+    file_base64: str,
+    filename: str,
+    document_type: str = "LOA",
+    content_type: str = "",
+    account_id: str = "",
+) -> dict:
+    """Upload an LNP document (LOA, invoice, CSR) onto a port-in order."""
+    doc_type = document_type.strip().upper() or "LOA"
+    if doc_type not in _DOCUMENT_TYPES:
+        raise ValueError(
+            f"document_type must be one of {', '.join(_DOCUMENT_TYPES)}, "
+            f"got {document_type!r}"
+        )
+    mime = content_type.strip()
+    if not mime:
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        mime = _UPLOAD_TYPES.get(ext, "")
+        if not mime:
+            raise ValueError(
+                f"Can't tell the file type from {filename!r}. Use a "
+                f"{'/'.join(sorted(_UPLOAD_TYPES))} extension or pass "
+                "content_type."
+            )
+    try:
+        content = base64.b64decode(file_base64, validate=True)
+    except Exception as exc:
+        raise ValueError(f"file_base64 is not valid base64: {exc}") from exc
+    if not content:
+        raise ValueError("file_base64 decoded to an empty file.")
+
+    uploaded = await _dashboard_upload(
+        config, f"portins/{order_id}/loas", content, mime, account_id
+    )
+    stored = uploaded.get("id") or _uploaded_filename(uploaded)
+    if stored:
+        meta = Element("FileMetaData")
+        SubElement(meta, "DocumentType").text = doc_type
+        try:
+            uploaded["metadata"] = await _dashboard_send(
+                config,
+                "PUT",
+                f"portins/{order_id}/loas/{stored}/metadata",
+                meta,
+                account_id,
+            )
+        except RuntimeError as exc:
+            uploaded["metadataError"] = str(exc)
+        uploaded["filename"] = stored
+    return uploaded
 
 def _port_in_problems(
     numbers: list,
@@ -232,6 +399,7 @@ def _port_in_problems(
     requested_foc_date: str,
     partial_port: bool,
     new_billing_telephone_number: str,
+    requested_foc_time: str = "",
 ) -> list[str]:
     """Everything wrong with a proposed port-in, as fixable statements.
 
@@ -288,6 +456,23 @@ def _port_in_problems(
                 f"requested_foc_date: YYYY-MM-DD, got {requested_foc_date!r}"
             )
 
+    if requested_foc_time.strip():
+        if not requested_foc_date.strip():
+            problems.append(
+                "requested_foc_time: requires requested_foc_date (YYYY-MM-DD) to also be set"
+            )
+        try:
+            t = datetime.strptime(requested_foc_time.strip(), "%H:%M").time()
+            if t < time(5, 0) or t > time(22, 0):
+                problems.append(
+                    f"requested_foc_time: {requested_foc_time.strip()!r} is outside "
+                    "Bandwidth's activation windows (automated off-net 06:00-22:00 ET, "
+                    "automated on-net and internal 05:00-22:00 ET)"
+                )
+        except ValueError:
+            problems.append(
+                f"requested_foc_time: 24h HH:MM in Eastern time, got {requested_foc_time!r}"
+            )
     btn = _clean_tn(billing_telephone_number)
     new_btn = _clean_tn(new_billing_telephone_number)
     # A replacement BTN is only meaningful when the BTN itself is porting: the
@@ -298,7 +483,7 @@ def _port_in_problems(
     if partial_port and btn in ported and not new_btn:
         problems.append(
             "new_billing_telephone_number: required when the BTN itself is "
-            "porting — the TN that stays with the losing carrier and becomes "
+            "porting: the TN that stays with the losing carrier and becomes "
             "the BTN on what is left of that account"
         )
     if new_btn and not partial_port:
@@ -574,8 +759,9 @@ def register_numbers_tools(mcp, config: dict) -> None:
     async def create_port_in_order(
         billing_telephone_number: str,
         numbers: list[str],
-        site_id: str,
         loa_authorizing_person: str,
+        site_id: str = "",
+        site_name: str = "",
         business_name: str = "",
         first_name: str = "",
         last_name: str = "",
@@ -586,12 +772,15 @@ def register_numbers_tools(mcp, config: dict) -> None:
         state_code: str = "",
         zip_code: str = "",
         requested_foc_date: str = "",
+        requested_foc_time: str = "",
         peer_id: str = "",
         losing_carrier_account_number: str = "",
         pin: str = "",
         partial_port: bool = False,
         new_billing_telephone_number: str = "",
         customer_order_id: str = "",
+        loa_file_base64: str = "",
+        loa_filename: str = "",
         account_id: str = "",
     ) -> dict:
         """CREATE a port-in (LNP) order to bring numbers TO Bandwidth. A
@@ -608,14 +797,30 @@ def register_numbers_tools(mcp, config: dict) -> None:
         port: pass partial_port=true plus new_billing_telephone_number (a TN
         that stays behind). A full port must include the BTN itself.
 
-        After the order is created, upload the signed LOA with
-        uploadPortInLoa, then poll getPortInOrder.
+        Activation time: pass requested_foc_time in 24h Eastern time (e.g.
+        "20:00" for 8:00 PM ET) alongside requested_foc_date to schedule an
+        activation time. The tool converts to the correct Eastern offset
+        automatically and sets Triggered=true. Valid windows are 05:00 to
+        22:00 ET (on-net/internal) and 06:00 to 22:00 ET (off-net).
+        Manual port types (manual off-net, manual toll free, phase 1 automated
+        toll free, project ports) always activate at 11:30 AM ET and ignore
+        both fields: run checkPortability first to learn the port type before
+        promising a customer an activation time.
+
+        Destination site: specify site_id or site_name. site_name is resolved
+        case-insensitively against the account's sites (see listSites).
+
+        LOA upload: you may pass loa_file_base64 (and optional loa_filename)
+        to attach the LOA document in the same call. Otherwise, upload it
+        afterward with uploadPortInLoa, then poll getPortInOrder.
 
         Args:
             billing_telephone_number: The BTN on the losing carrier account.
             numbers: The numbers to port.
-            site_id: Destination site (see listSites).
             loa_authorizing_person: Name of the person who signed the LOA.
+            site_id: Destination site ID (see listSites). Optional if site_name is given.
+            site_name: Destination site name (case-insensitive, resolved against
+                the account's sites). Optional if site_id is given.
             business_name: Business subscriber name (required for a business
                 port; use first_name + last_name for residential).
             first_name: Residential subscriber first name.
@@ -624,30 +829,36 @@ def register_numbers_tools(mcp, config: dict) -> None:
             street_name: Service address street (required).
             address_line_2: Secondary unit exactly as the losing carrier's
                 record shows it (e.g. "Suite 130", "Apt 4B"). Optional, but
-                send it when the CSR has one — a missing unit is a common
+                send it when the CSR has one: a missing unit is a common
                 address-mismatch rejection.
             city: Service address city (required).
             state_code: Service address two-letter state (required).
             zip_code: Service address ZIP or ZIP+4 (required).
             requested_foc_date: Optional requested port date (YYYY-MM-DD).
+            requested_foc_time: Optional requested activation time in 24h
+                Eastern time (e.g. "20:00" for 8:00 PM ET). Requires
+                requested_foc_date. Sets Triggered=true.
             peer_id: Optional destination SIP peer (see listSipPeers).
             losing_carrier_account_number: Account number with the losing
                 carrier, from their CSR or bill. Optional to Bandwidth but
                 required by most losing carriers: without it the order is
                 accepted here and rejected there, days later. Collect it.
             pin: PIN/passcode with the losing carrier. Same story as the
-                account number — get it if the carrier issues one.
+                account number: get it if the carrier issues one.
             partial_port: True when only some of the losing account's numbers
                 are porting.
             new_billing_telephone_number: Only when the BTN is itself porting:
                 the TN that stays with the losing carrier and becomes its new
-                BTN. Leave empty when the BTN is not in `numbers` — it stays
+                BTN. Leave empty when the BTN is not in `numbers`: it stays
                 the BTN, and passing it here is rejected.
             customer_order_id: Optional reference of yours, echoed back on the
                 order (useful for tying a port to a customer ticket).
-                Alphanumeric, dashes and spaces only, max 255 — a dotted
-                ticket number like T20260806.0030 has to become
-                T20260806-0030.
+                Alphanumeric, dashes and spaces only, max 255. Defaults to
+                subscriber name plus porting number for single-number ports,
+                or subscriber name alone for several.
+            loa_file_base64: Optional base64-encoded LOA document (PDF, TIFF,
+                PNG, JPEG) to attach in the same call.
+            loa_filename: Optional filename for the LOA (e.g. "acme-loa.pdf").
             account_id: Optional account (see listAccounts).
         """
         problems = _port_in_problems(
@@ -664,6 +875,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
             requested_foc_date,
             partial_port,
             new_billing_telephone_number,
+            requested_foc_time,
         )
         if problems:
             raise ValueError(
@@ -672,11 +884,34 @@ def register_numbers_tools(mcp, config: dict) -> None:
                 + "\n- ".join(problems)
             )
 
+        resolved_site_id = await _resolve_site(
+            config, site_id, site_name, account_id
+        )
+
+        if customer_order_id.strip():
+            final_order_id = _sanitize_customer_order_id(customer_order_id)
+        else:
+            sub_name = (
+                business_name.strip()
+                if business_name.strip()
+                else f"{first_name.strip()} {last_name.strip()}".strip()
+            )
+            if len(numbers) == 1:
+                raw_default = f"{sub_name} {_clean_tn(numbers[0])}".strip()
+            else:
+                raw_default = sub_name
+            final_order_id = _sanitize_customer_order_id(raw_default)
+
         body = Element("LnpOrder")
-        if customer_order_id:
-            SubElement(body, "CustomerOrderId").text = customer_order_id
-        if requested_foc_date:
-            SubElement(body, "RequestedFocDate").text = requested_foc_date.strip()
+        if final_order_id:
+            SubElement(body, "CustomerOrderId").text = final_order_id
+        if requested_foc_date.strip():
+            foc_date_formatted, is_triggered = _format_foc_date_time(
+                requested_foc_date, requested_foc_time
+            )
+            SubElement(body, "RequestedFocDate").text = foc_date_formatted
+            if is_triggered:
+                SubElement(body, "Triggered").text = "true"
         # /portins rejects bare 10-digit numbers ("Retry request with all E.164
         # formatted phone numbers"), unlike the rest of the Dashboard API.
         SubElement(body, "BillingTelephoneNumber").text = _e164_tn(
@@ -703,7 +938,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         SubElement(body, "LoaAuthorizingPerson").text = loa_authorizing_person
         _tn_list(body, "ListOfPhoneNumbers", "PhoneNumber", numbers, e164=True)
         # The losing carrier's account number and PIN live inside <WirelessInfo>,
-        # whatever the name suggests — it is where Bandwidth keeps them for
+        # whatever the name suggests: it is where Bandwidth keeps them for
         # wireline ports too (LosingCarrierIsWireless=false orders come back with
         # exactly this shape). As top-level children of LnpOrder they are
         # silently dropped, the order is accepted looking complete, and the
@@ -716,7 +951,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
                 )
             if pin:
                 SubElement(wireless, "PinNumber").text = pin.strip()
-        SubElement(body, "SiteId").text = site_id
+        SubElement(body, "SiteId").text = resolved_site_id
         if peer_id:
             SubElement(body, "PeerId").text = peer_id
         # Partial-port pair goes last, matching Bandwidth's documented example.
@@ -728,7 +963,55 @@ def register_numbers_tools(mcp, config: dict) -> None:
                 SubElement(body, "NewBillingTelephoneNumber").text = _e164_tn(
                     new_billing_telephone_number
                 )
-        return await _dashboard_send(config, "POST", "portins", body, account_id)
+        result = await _dashboard_send(config, "POST", "portins", body, account_id)
+
+        order_id = result.get("id") or ""
+        if not order_id:
+            for wrapper in ("LnpOrderResponse", "LnpOrder", "order"):
+                obj = result.get(wrapper)
+                if isinstance(obj, dict):
+                    order_id = obj.get("OrderId") or obj.get("id") or ""
+                    if order_id:
+                        break
+
+        try:
+            target_account = _resolve_account(config, account_id)
+        except Exception:
+            target_account = account_id or config.get("BW_ACCOUNT_ID", "")
+
+        if order_id:
+            result["order_id"] = str(order_id)
+            if target_account:
+                result["order_url"] = (
+                    f"https://app.bandwidth.com/a/{target_account}/orders/portIn/{order_id}"
+                )
+
+        if loa_file_base64.strip():
+            if order_id:
+                try:
+                    await _upload_port_in_document(
+                        config,
+                        order_id,
+                        file_base64=loa_file_base64,
+                        filename=loa_filename or "loa.pdf",
+                        document_type="LOA",
+                        account_id=account_id,
+                    )
+                    loa_list = await _dashboard_json(
+                        config, f"portins/{order_id}/loas", account_id
+                    )
+                    result["loa"] = loa_list
+                except Exception as exc:
+                    result["loa_error"] = (
+                        f"Order created successfully, but attaching the LOA failed: {exc}. "
+                        f"Retry attaching the LOA with uploadPortInLoa(order_id={order_id!r})."
+                    )
+            else:
+                result["loa_error"] = (
+                    "Order created, but no order ID was returned to attach the LOA."
+                )
+
+        return result
 
     @mcp.tool(name="uploadPortInLoa", annotations=_WRITE)
     async def upload_port_in_loa(
@@ -756,74 +1039,79 @@ def register_numbers_tools(mcp, config: dict) -> None:
             content_type: Optional MIME type override.
             account_id: Optional account (see listAccounts).
         """
-        doc_type = document_type.strip().upper() or "LOA"
-        if doc_type not in _DOCUMENT_TYPES:
-            raise ValueError(
-                f"document_type must be one of {', '.join(_DOCUMENT_TYPES)}, "
-                f"got {document_type!r}"
-            )
-        mime = content_type.strip()
-        if not mime:
-            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-            mime = _UPLOAD_TYPES.get(ext, "")
-            if not mime:
-                raise ValueError(
-                    f"Can't tell the file type from {filename!r}. Use a "
-                    f"{'/'.join(sorted(_UPLOAD_TYPES))} extension or pass "
-                    "content_type."
-                )
-        try:
-            content = base64.b64decode(file_base64, validate=True)
-        except Exception as exc:
-            raise ValueError(f"file_base64 is not valid base64: {exc}") from exc
-        if not content:
-            raise ValueError("file_base64 decoded to an empty file.")
-
-        uploaded = await _dashboard_upload(
-            config, f"portins/{order_id}/loas", content, mime, account_id
+        return await _upload_port_in_document(
+            config,
+            order_id,
+            file_base64,
+            filename,
+            document_type=document_type,
+            content_type=content_type,
+            account_id=account_id,
         )
-        # Bandwidth names the stored file itself; the metadata PUT is what
-        # marks it as the LOA rather than an unclassified attachment.
-        stored = uploaded.get("id") or _uploaded_filename(uploaded)
-        if stored:
-            meta = Element("FileMetaData")
-            SubElement(meta, "DocumentType").text = doc_type
-            try:
-                uploaded["metadata"] = await _dashboard_send(
-                    config,
-                    "PUT",
-                    f"portins/{order_id}/loas/{stored}/metadata",
-                    meta,
-                    account_id,
-                )
-            except RuntimeError as exc:
-                # The file IS uploaded at this point; don't fail the tool over
-                # the classification step, report it so the agent can retry.
-                uploaded["metadataError"] = str(exc)
-            uploaded["filename"] = stored
-        return uploaded
 
     @mcp.tool(name="supplementPortInOrder", annotations=_WRITE)
     async def supplement_port_in_order(
         order_id: str,
         requested_foc_date: str = "",
+        requested_foc_time: str = "",
         site_id: str = "",
         loa_authorizing_person: str = "",
         account_id: str = "",
     ) -> dict:
-        """SUPP (modify) an existing port-in order: change the FOC date or
-        correct details. Only pass the fields being changed.
+        """SUPP (modify) an existing port-in order: change the FOC date or time,
+        or correct details. Only pass the fields being changed.
+
+        Note: an activation time (requested_foc_time) cannot be added to an
+        order that was not filed as Triggered (Bandwidth error 7608).
 
         Args:
             order_id: The LNP order id (from listPortInOrders).
             requested_foc_date: New requested port date (YYYY-MM-DD).
+            requested_foc_time: Optional new requested activation time in 24h
+                Eastern time (e.g. "20:00" for 8:00 PM ET). Setting a time
+                requires requested_foc_date. Sets Triggered=true. Valid
+                windows are 05:00 to 22:00 ET (on-net/internal) and 06:00 to
+                22:00 ET (off-net).
             site_id: Corrected destination site.
             loa_authorizing_person: Corrected LOA signer name.
             account_id: Optional account (see listAccounts).
         """
+        if requested_foc_time.strip():
+            if not requested_foc_date.strip():
+                raise ValueError(
+                    "requested_foc_time requires requested_foc_date (YYYY-MM-DD) to also be set"
+                )
+            try:
+                t = datetime.strptime(requested_foc_time.strip(), "%H:%M").time()
+                if t < time(5, 0) or t > time(22, 0):
+                    raise ValueError(
+                        f"requested_foc_time: {requested_foc_time.strip()!r} is outside "
+                        "Bandwidth's activation windows (automated off-net 06:00-22:00 ET, "
+                        "automated on-net and internal 05:00-22:00 ET)"
+                    )
+            except ValueError as exc:
+                if "activation windows" in str(exc):
+                    raise
+                raise ValueError(
+                    f"requested_foc_time: 24h HH:MM in Eastern time, got {requested_foc_time!r}"
+                ) from exc
+
+        if requested_foc_date.strip():
+            try:
+                datetime.strptime(requested_foc_date.strip(), "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(
+                    f"requested_foc_date: YYYY-MM-DD, got {requested_foc_date!r}"
+                )
+
         body = Element("LnpOrderSupp")
-        if requested_foc_date:
-            SubElement(body, "RequestedFocDate").text = requested_foc_date
+        if requested_foc_date.strip():
+            foc_date_formatted, is_triggered = _format_foc_date_time(
+                requested_foc_date, requested_foc_time
+            )
+            SubElement(body, "RequestedFocDate").text = foc_date_formatted
+            if is_triggered:
+                SubElement(body, "Triggered").text = "true"
         if site_id:
             SubElement(body, "SiteId").text = site_id
         if loa_authorizing_person:

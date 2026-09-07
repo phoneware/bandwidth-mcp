@@ -32,7 +32,11 @@ requests against `{api_base}/api/v2/accounts/{accountId}/…`, parsed back to JS
   Bandwidth requires the subscriber name and full service address, so the tool
   collects every problem and raises once rather than spending a live carrier
   write to discover them. Keep new required-field rules there so they stay
-  unit-testable without a mocked HTTP round trip.
+  unit-testable without a mocked HTTP round trip. Activation scheduling
+  (requested_foc_time in Eastern time, localized and setting Triggered=true),
+  site resolution by name via `_resolve_site`, order ID defaults via
+  `_sanitize_customer_order_id`, and single-call LOA attachment via
+  `_upload_port_in_document` live in `numbers.py`.
 - **`reports.py`**: usage/billing over the async `/reports` engine: list report
   definitions, create an instance, poll until `Ready`, download the file (zip
   archives unpacked in memory, text truncated at 200k chars).

@@ -285,11 +285,17 @@ the single source of truth for the whole surface. Filter precedence lives in
 - **Port-ins need a subscriber name AND full service address** (as they appear
   on the losing carrier's bill), so `createPortInOrder` validates up front via
   `_port_in_problems` rather than spending a live carrier write on a 400.
+- **Port-in activation scheduling and destination**: `createPortInOrder` accepts
+  `requested_foc_time` in Eastern time (24h HH:MM) alongside `requested_foc_date`,
+  converts to the correct Eastern offset (EDT/EST) automatically, and sets
+  `<Triggered>true</Triggered>`. Destination can be given by `site_id` or resolved
+  by `site_name` against the account's sites. Customer order ID defaults to
+  subscriber name plus porting number when omitted.
 - **LOA upload is raw bytes, not multipart**: POST the document with its own
   `Content-Type` to `portins/{id}/loas`, then PUT `<FileMetaData>` to
-  `.../loas/{filename}/metadata` to mark it as the LOA. `uploadPortInLoa` does
-  both, and reports a metadata failure instead of raising (the file is already
-  stored by then).
+  `.../loas/{filename}/metadata` to mark it as the LOA. Both `uploadPortInLoa`
+  and `createPortInOrder` (via `loa_file_base64`) share this protocol, and
+  report an attach failure while preserving the created `order_id`.
 - **Report instances finish as `Status: Ready`**, not the documented
   `COMPLETED`. Poll for `Ready`.
 - **Empty response bodies mean "nothing here"** on several Dashboard endpoints

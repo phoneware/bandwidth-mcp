@@ -154,6 +154,7 @@ def _problems(**overrides):
         args.get("requested_foc_date", ""),
         args.get("partial_port", False),
         args.get("new_billing_telephone_number", ""),
+        args.get("requested_foc_time", ""),
     )
 
 
@@ -626,3 +627,494 @@ async def test_number_orders_paged_and_lnpchecker_e164(monkeypatch):
     assert path.startswith("lnpchecker")
     # lnpchecker is E.164; every other endpoint takes bare 10-digit
     assert "<Tn>+14805287344</Tn>" in xml
+
+def test_port_in_out_of_window_time_refused():
+    """Times outside 05:00-22:00 ET are refused with both published windows in the message."""
+    probs_early = _problems(
+        requested_foc_date="2026-09-11", requested_foc_time="04:59"
+    )
+    assert any("outside Bandwidth's activation windows" in p for p in probs_early)
+    assert any("automated off-net 06:00-22:00 ET" in p for p in probs_early)
+    assert any("automated on-net and internal 05:00-22:00 ET" in p for p in probs_early)
+
+    probs_late = _problems(
+        requested_foc_date="2026-09-11", requested_foc_time="22:01"
+    )
+    assert any("outside Bandwidth's activation windows" in p for p in probs_late)
+
+    # Valid boundary times (05:00 and 22:00 ET)
+    assert not any(
+        "requested_foc_time" in p
+        for p in _problems(
+            requested_foc_date="2026-09-11", requested_foc_time="05:00"
+        )
+    )
+    assert not any(
+        "requested_foc_time" in p
+        for p in _problems(
+            requested_foc_date="2026-09-11", requested_foc_time="22:00"
+        )
+    )
+
+
+def test_port_in_time_without_date_refused():
+    """requested_foc_time without requested_foc_date is refused with a fixable statement."""
+    probs = _problems(requested_foc_date="", requested_foc_time="20:00")
+    assert any(
+        "requires requested_foc_date (YYYY-MM-DD) to also be set" in p for p in probs
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_date_only_xml_unchanged_serialized(monkeypatch):
+    """Byte-identical old path: date-only call produces the exact serialized XML
+    as before the time/site/LOA changes."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "customer_order_id": "aff derm scotts T20260805-0017",
+                "requested_foc_date": "2026-09-11",
+            },
+        )
+
+    expected_xml = (
+        "<LnpOrder>"
+        "<CustomerOrderId>aff derm scotts T20260805-0017</CustomerOrderId>"
+        "<RequestedFocDate>2026-09-11</RequestedFocDate>"
+        "<BillingTelephoneNumber>+19195550000</BillingTelephoneNumber>"
+        "<Subscriber>"
+        "<SubscriberType>BUSINESS</SubscriberType>"
+        "<BusinessName>Phoneware</BusinessName>"
+        "<ServiceAddress>"
+        "<HouseNumber>1</HouseNumber>"
+        "<StreetName>Main</StreetName>"
+        "<City>Phoenix</City>"
+        "<StateCode>AZ</StateCode>"
+        "<Zip>85001</Zip>"
+        "</ServiceAddress>"
+        "</Subscriber>"
+        "<LoaAuthorizingPerson>Rick Waldrip</LoaAuthorizingPerson>"
+        "<ListOfPhoneNumbers>"
+        "<PhoneNumber>+19195550000</PhoneNumber>"
+        "<PhoneNumber>+19195550001</PhoneNumber>"
+        "</ListOfPhoneNumbers>"
+        "<SiteId>s1</SiteId>"
+        "</LnpOrder>"
+    )
+    assert sent["xml"] == expected_xml
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_triggered_xml_offsets_july_and_january(monkeypatch):
+    """Triggered XML across DST boundaries: -0400 in July (EDT) and -0500 in January (EST)."""
+    sent = []
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent.append(tostring(body, encoding="unicode"))
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        # July (EDT: -0400)
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "requested_foc_date": "2026-07-15",
+                "requested_foc_time": "20:00",
+            },
+        )
+        # January (EST: -0500)
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "requested_foc_date": "2026-01-15",
+                "requested_foc_time": "20:00",
+            },
+        )
+
+    assert (
+        "<RequestedFocDate>2026-07-15T20:00:00-0400</RequestedFocDate><Triggered>true</Triggered>"
+        in sent[0]
+    )
+    assert (
+        "<RequestedFocDate>2026-01-15T20:00:00-0500</RequestedFocDate><Triggered>true</Triggered>"
+        in sent[1]
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_site_name_resolution(monkeypatch):
+    """site_name resolves case-insensitively against the account's sites."""
+    sent = {}
+
+    async def fake_get(config, path, account_id=""):
+        if path == "sites":
+            return """<SitesResponse>
+                <Sites>
+                    <Site><Id>206358</Id><Name>faxedge</Name></Site>
+                    <Site><Id>100001</Id><Name>Main Office</Name></Site>
+                </Sites>
+            </SitesResponse>"""
+        return "<xml/>"
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_get", fake_get)
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    good_without_site = {k: v for k, v in _GOOD_PORT_IN.items() if k != "site_id"}
+
+    async with Client(mcp) as client:
+        # Case-insensitive resolution
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **good_without_site,
+                "site_name": "FaxEdge",
+            },
+        )
+        assert "<SiteId>206358</SiteId>" in sent["xml"]
+
+        # Both site_id and site_name passed and agreeing
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **good_without_site,
+                "site_id": "206358",
+                "site_name": "faxedge",
+            },
+        )
+        assert "<SiteId>206358</SiteId>" in sent["xml"]
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_site_name_ambiguous_unmatched_and_mismatched(
+    monkeypatch,
+):
+    """Ambiguous or unmatched site_name fails listing candidates; mismatch with site_id fails; neither fails."""
+
+    async def fake_get(config, path, account_id=""):
+        if path == "sites":
+            return """<SitesResponse>
+                <Sites>
+                    <Site><Id>101</Id><Name>Branch</Name></Site>
+                    <Site><Id>102</Id><Name>branch</Name></Site>
+                    <Site><Id>206358</Id><Name>faxedge</Name></Site>
+                </Sites>
+            </SitesResponse>"""
+        return "<xml/>"
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_get", fake_get)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    good_without_site = {k: v for k, v in _GOOD_PORT_IN.items() if k != "site_id"}
+
+    async with Client(mcp) as client:
+        # Ambiguous match
+        with pytest.raises(Exception) as err_ambig:
+            await client.call_tool(
+                "createPortInOrder",
+                {
+                    **good_without_site,
+                    "site_name": "Branch",
+                },
+            )
+        assert "Ambiguous site_name" in str(err_ambig.value)
+        assert "101" in str(err_ambig.value) and "102" in str(err_ambig.value)
+
+        # Unmatched site_name
+        with pytest.raises(Exception) as err_unknown:
+            await client.call_tool(
+                "createPortInOrder",
+                {
+                    **good_without_site,
+                    "site_name": "nonexistent",
+                },
+            )
+        assert "Unknown site_name" in str(err_unknown.value)
+        assert "faxedge" in str(err_unknown.value)
+
+        # Mismatch between site_id and site_name
+        with pytest.raises(Exception) as err_mismatch:
+            await client.call_tool(
+                "createPortInOrder",
+                {
+                    **good_without_site,
+                    "site_id": "999999",
+                    "site_name": "faxedge",
+                },
+            )
+        assert "disagree" in str(err_mismatch.value)
+
+        # Neither passed
+        with pytest.raises(Exception) as err_neither:
+            await client.call_tool(
+                "createPortInOrder",
+                {
+                    **good_without_site,
+                },
+            )
+        assert "site_id or site_name is required" in str(err_neither.value)
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_order_id_defaults(monkeypatch):
+    """customer_order_id defaults to subscriber name + TN for single number, name alone for several."""
+    sent = []
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent.append(tostring(body, encoding="unicode"))
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        # Single number business
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "billing_telephone_number": "6027955610",
+                "business_name": "Scott Harris",
+                "numbers": ["6027955610"],
+            },
+        )
+        # Multiple numbers business
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "billing_telephone_number": "6027955610",
+                "business_name": "Scott Harris",
+                "numbers": ["6027955610", "6027955611"],
+            },
+        )
+        # Single number residential
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "billing_telephone_number": "6027955610",
+                "business_name": "",
+                "first_name": "Scott",
+                "last_name": "Harris",
+                "numbers": ["6027955610"],
+            },
+        )
+
+    assert "<CustomerOrderId>Scott Harris 6027955610</CustomerOrderId>" in sent[0]
+    assert "<CustomerOrderId>Scott Harris</CustomerOrderId>" in sent[1]
+    assert "<CustomerOrderId>Scott Harris 6027955610</CustomerOrderId>" in sent[2]
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_order_id_sanitization(monkeypatch):
+    """customer_order_id converts dotted ticket numbers like T20260806.0030 to T20260806-0030."""
+    sent = []
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent.append(tostring(body, encoding="unicode"))
+        return {"httpStatus": 201, "id": "order-1"}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        # Dotted ticket reference
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "customer_order_id": "T20260806.0030",
+            },
+        )
+        # Dashed ticket reference preserved
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "customer_order_id": "aff derm scotts T20260805-0017",
+            },
+        )
+        # Punctuation in default subscriber name sanitized
+        await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "billing_telephone_number": "6027955610",
+                "business_name": "Acme, Inc.",
+                "numbers": ["6027955610"],
+            },
+        )
+
+    assert "<CustomerOrderId>T20260806-0030</CustomerOrderId>" in sent[0]
+    assert (
+        "<CustomerOrderId>aff derm scotts T20260805-0017</CustomerOrderId>"
+        in sent[1]
+    )
+    assert "<CustomerOrderId>Acme Inc 6027955610</CustomerOrderId>" in sent[2]
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_attach_failure_preserves_order_id(monkeypatch):
+    """When LOA upload fails, createPortInOrder returns order_id, order_url, and loa_error."""
+    import base64
+
+    async def fake_send(config, method, path, body, account_id=""):
+        return {"httpStatus": 201, "id": "order-987"}
+
+    async def fake_upload(config, path, content, content_type, account_id=""):
+        raise RuntimeError("Bandwidth upload storage offline")
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    monkeypatch.setattr(numbers_mod, "_dashboard_upload", fake_upload)
+    mcp = FastMCP("t")
+    register_numbers_tools(
+        mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "5011369"}
+    )
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "loa_file_base64": base64.b64encode(b"%PDF-1.4 sample").decode(),
+                "loa_filename": "sample.pdf",
+            },
+        )
+
+    data = result.data
+    assert data["order_id"] == "order-987"
+    assert (
+        data["order_url"]
+        == "https://app.bandwidth.com/a/5011369/orders/portIn/order-987"
+    )
+    assert "loa_error" in data
+    assert "uploadPortInLoa" in data["loa_error"]
+
+
+@pytest.mark.asyncio
+async def test_create_port_in_with_successful_loa_upload(monkeypatch):
+    """One call files the order and attaches the LOA, verified by reading loas back."""
+    import base64
+
+    async def fake_send(config, method, path, body, account_id=""):
+        if method == "POST" and path == "portins":
+            return {"httpStatus": 201, "id": "order-456"}
+        if method == "PUT" and "metadata" in path:
+            return {"httpStatus": 200}
+        return {"httpStatus": 200}
+
+    async def fake_upload(config, path, content, content_type, account_id=""):
+        return {"filename": "stored-loa.pdf", "id": "stored-loa.pdf"}
+
+    async def fake_get(config, path, account_id=""):
+        if path == "portins/order-456/loas":
+            return "<FileList><File><FileName>stored-loa.pdf</FileName><DocumentType>LOA</DocumentType></File></FileList>"
+        return "<xml/>"
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    monkeypatch.setattr(numbers_mod, "_dashboard_upload", fake_upload)
+    monkeypatch.setattr(numbers_mod, "_dashboard_get", fake_get)
+    mcp = FastMCP("t")
+    register_numbers_tools(
+        mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "5011369"}
+    )
+
+    async with Client(mcp) as client:
+        result = await client.call_tool(
+            "createPortInOrder",
+            {
+                **_GOOD_PORT_IN,
+                "loa_file_base64": base64.b64encode(b"%PDF-1.4 sample").decode(),
+                "loa_filename": "sample.pdf",
+            },
+        )
+
+    data = result.data
+    assert data["order_id"] == "order-456"
+    assert (
+        data["order_url"]
+        == "https://app.bandwidth.com/a/5011369/orders/portIn/order-456"
+    )
+    assert "loa" in data
+    assert "loa_error" not in data
+
+
+@pytest.mark.asyncio
+async def test_supplement_port_in_order_with_time(monkeypatch):
+    """supplementPortInOrder emits Triggered and Eastern offset when time is passed."""
+    sent = {}
+
+    async def fake_send(config, method, path, body, account_id=""):
+        sent["xml"] = tostring(body, encoding="unicode")
+        return {"httpStatus": 200}
+
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        await client.call_tool(
+            "supplementPortInOrder",
+            {
+                "order_id": "order-1",
+                "requested_foc_date": "2026-07-20",
+                "requested_foc_time": "20:00",
+            },
+        )
+    assert (
+        "<RequestedFocDate>2026-07-20T20:00:00-0400</RequestedFocDate>"
+        in sent["xml"]
+    )
+    assert "<Triggered>true</Triggered>" in sent["xml"]
+
+    # Time without date in supplement fails
+    async with Client(mcp) as client:
+        with pytest.raises(Exception) as err:
+            await client.call_tool(
+                "supplementPortInOrder",
+                {
+                    "order_id": "order-1",
+                    "requested_foc_time": "20:00",
+                },
+            )
+        assert "requires requested_foc_date" in str(err.value)
+
+    # Out of window time in supplement fails
+    async with Client(mcp) as client:
+        with pytest.raises(Exception) as err:
+            await client.call_tool(
+                "supplementPortInOrder",
+                {
+                    "order_id": "order-1",
+                    "requested_foc_date": "2026-07-20",
+                    "requested_foc_time": "04:30",
+                },
+            )
+        assert "outside Bandwidth's activation windows" in str(err.value)

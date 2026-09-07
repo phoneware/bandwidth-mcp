@@ -16,6 +16,7 @@ disconnects, port-in create/supp/cancel, LOA upload) register under
 import base64
 import re
 from datetime import datetime, time
+from functools import lru_cache
 from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 from zoneinfo import ZoneInfo
 import httpx
@@ -32,7 +33,18 @@ _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWor
 # DRAFT, SUBMITTED, PENDING_DOCUMENTS, EXCEPTION, REQUESTED_SUPP, FOC,
 # REQUESTED_CANCEL, CANCELLED, COMPLETE.
 _PENDING_LNP_STATUSES = "draft,submitted,pending_documents,exception,requested_supp,foc,requested_cancel"
-_ET = ZoneInfo("America/New_York")
+
+
+@lru_cache(maxsize=1)
+def _eastern() -> ZoneInfo:
+    """America/New_York, resolved on first use.
+
+    Every activation window Bandwidth publishes is stated in Eastern, so the
+    conversion belongs here rather than in a caller computing its own DST
+    offset. Resolved lazily and cached: a container missing tzdata should cost
+    the one tool that schedules a time, not every tool in this module at
+    import."""
+    return ZoneInfo("America/New_York")
 
 
 def _xml_to_data(el):
@@ -315,7 +327,7 @@ def _format_foc_date_time(foc_date: str, foc_time: str) -> tuple[str, bool]:
     if not time_str:
         return date_str, False
     dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M").replace(
-        tzinfo=_ET
+        tzinfo=_eastern()
     )
     return dt.strftime("%Y-%m-%dT%H:%M:00%z"), True
 

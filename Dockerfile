@@ -25,6 +25,7 @@ RUN pip install \
       "pyyaml~=6.0.0" \
       "werkzeug>=3.1.4" \
       "google-cloud-firestore==2.21.0" \
+      "tzdata" \
       "uvicorn"
 
 COPY src ./src

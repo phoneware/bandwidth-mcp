@@ -35,6 +35,23 @@ from tools.numbers import (
 )
 
 
+def _nested(payload, *tags: str) -> dict:
+    """Walk down a parsed Dashboard response by element name.
+
+    `_xml_to_data` nests every response under its root tag and returns a dict
+    for any element that has children, so the happy path is a chain of dict
+    lookups. Anything else (a text-only element, a missing tag, an error shape)
+    collapses to {} here so the caller reports a legible "could not resolve"
+    instead of raising a TypeError three lines later.
+    """
+    current = payload
+    for tag in tags:
+        if not isinstance(current, dict):
+            return {}
+        current = current.get(tag, {})
+    return current if isinstance(current, dict) else {}
+
+
 def register_tnoptions_tools(mcp, config: dict) -> None:
     """Register TN Options / Call Forwarding tools on the MCP server."""
 
@@ -113,75 +130,41 @@ def register_tnoptions_tools(mcp, config: dict) -> None:
         if len(tn) != 10:
             raise RuntimeError(f"A 10-digit phone number is required (got {number!r}).")
 
-        tndetails = await _dashboard_json_abs(config, f"tns/{tn}/tndetails")
-        tn_resp = (
-            tndetails.get("TelephoneNumberResponse", tndetails)
-            if isinstance(tndetails, dict)
-            else {}
+        # _xml_to_data nests each response under its root tag, and returns a
+        # dict for any element with children, so Site/SipPeer are always dicts
+        # when present. Use _nested so a shape we did not expect degrades into
+        # the "could not resolve" error below rather than a TypeError.
+        details = _nested(
+            await _dashboard_json_abs(config, f"tns/{tn}/tndetails"),
+            "TelephoneNumberResponse",
+            "TelephoneNumberDetails",
         )
-        details = (
-            tn_resp.get("TelephoneNumberDetails", tn_resp)
-            if isinstance(tn_resp, dict)
-            else {}
-        )
-        if not isinstance(details, dict):
-            details = {}
-
-        site_val = details.get("Site")
-        site_id = ""
-        if isinstance(site_val, dict):
-            site_id = str(site_val.get("Id") or site_val.get("id") or "").strip()
-        elif site_val is not None:
-            site_id = str(site_val).strip()
-
-        peer_val = details.get("SipPeer")
-        peer_id = ""
-        if isinstance(peer_val, dict):
-            peer_id = str(
-                peer_val.get("PeerId")
-                or peer_val.get("peerId")
-                or peer_val.get("Id")
-                or peer_val.get("id")
-                or ""
-            ).strip()
-        elif peer_val is not None:
-            peer_id = str(peer_val).strip()
+        site_id = str(_nested(details, "Site").get("Id") or "").strip()
+        peer_id = str(_nested(details, "SipPeer").get("PeerId") or "").strip()
 
         if not site_id or not peer_id:
             raise RuntimeError(
                 f"Could not resolve site or SIP peer for {tn!r} (site_id={site_id!r}, peer_id={peer_id!r})."
             )
 
+        # The TN's own account, not necessarily the primary one. _resolve_account
+        # validates it against the token's claims, so a number on an account
+        # these credentials cannot reach fails loudly instead of silently
+        # reading the wrong account's record.
         target_account = account_id or str(details.get("AccountId") or "")
-        record_resp = await _dashboard_json(
-            config, f"sites/{site_id}/sippeers/{peer_id}/tns/{tn}", target_account
+        sp_tn = _nested(
+            await _dashboard_json(
+                config, f"sites/{site_id}/sippeers/{peer_id}/tns/{tn}", target_account
+            ),
+            "SipPeerTelephoneNumberResponse",
+            "SipPeerTelephoneNumber",
         )
 
-        sp_resp = (
-            record_resp.get("SipPeerTelephoneNumberResponse", record_resp)
-            if isinstance(record_resp, dict)
-            else {}
-        )
-        sp_tn = (
-            sp_resp.get("SipPeerTelephoneNumber", sp_resp)
-            if isinstance(sp_resp, dict)
-            else {}
-        )
-        if not isinstance(sp_tn, dict):
-            sp_tn = {}
-
-        raw_cf = sp_tn.get("CallForward")
-        if (
-            raw_cf
-            and isinstance(raw_cf, str)
-            and raw_cf.strip()
-            and raw_cf.strip().lower() != "systemdefault"
-        ):
-            call_forward = raw_cf.strip()
-            forwarding = True
-        else:
-            call_forward = None
-            forwarding = False
+        # Bandwidth omits CallForward entirely when nothing is set, and reports
+        # a cleared forward as systemDefault. Both mean "not forwarding".
+        raw_cf = str(sp_tn.get("CallForward") or "").strip()
+        forwarding = bool(raw_cf) and raw_cf.lower() != "systemdefault"
+        call_forward = raw_cf if forwarding else None
 
         return {
             "number": tn,
@@ -202,7 +185,8 @@ def register_tnoptions_tools(mcp, config: dict) -> None:
 
         Args:
             number: Optional phone number to filter orders by (10-digit or E.164).
-            status: Optional status to filter by (for example RECEIVED, COMPLETE, FAILED).
+            status: Optional ProcessingStatus to filter by, one of RECEIVED,
+                PROCESSING, COMPLETE, PARTIAL, FAILED.
             account_id: Optional account to query (see listAccounts).
         """
         params = []
@@ -222,8 +206,10 @@ def register_tnoptions_tools(mcp, config: dict) -> None:
     async def get_tn_option_order(order_id: str, account_id: str = "") -> dict:
         """Get status and details for one TN option order (such as a call forwarding order).
 
-        ProcessingStatus runs RECEIVED then COMPLETE or FAILED. ErrorList carries
-        per-number failures. Read-only.
+        ProcessingStatus is one of RECEIVED, PROCESSING, COMPLETE, PARTIAL,
+        FAILED. PARTIAL means some numbers took the change and others did not,
+        so read ErrorList for the per-number failures rather than treating a
+        non-FAILED status as success. Read-only.
 
         Args:
             order_id: The TN option order ID (from setCallForwarding or listTnOptionOrders).

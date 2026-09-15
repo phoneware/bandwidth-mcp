@@ -311,8 +311,10 @@ the single source of truth for the whole surface. Filter precedence lives in
   hosted transport never registers it; auth there is the OAuth `/token` mint.
 - **TN Options work orders are asynchronous**: a 201 response means the order
   was received, not that the change has applied. Poll `getTnOptionOrder` until
-  `ProcessingStatus` is `COMPLETE` or `FAILED`, and check `ErrorList` for any
-  per-number errors.
+  `ProcessingStatus` leaves `RECEIVED`/`PROCESSING`. It settles on `COMPLETE`,
+  `PARTIAL`, or `FAILED`, and `PARTIAL` means some numbers took the change and
+  others did not, so read `ErrorList` rather than treating not-`FAILED` as
+  success.
 - **Current call forwarding is only readable on the SIP-peer record**: `tndetails`
   does not return forwarding configuration. Query `tns/<tn>/tndetails` to resolve
   `site_id` and `peer_id`, then read `sites/<siteId>/sippeers/<peerId>/tns/<tn>`.

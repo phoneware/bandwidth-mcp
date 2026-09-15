@@ -57,6 +57,10 @@ PROFILES: dict[str, list[str]] = {
         # CNAM (LIDB) reads — calling-name order history/status.
         "listLidbOrders",
         "getLidbOrder",
+        # Call forwarding reads: current forwarding and TN option order history.
+        "getCallForwarding",
+        "listTnOptionOrders",
+        "getTnOptionOrder",
         # Inventory + application listing also live in the voice profile;
         # included here so numbers-only deployments keep them (Phoneware's
         # deployment drops voice: its creds have no Bandwidth Voice access).
@@ -74,6 +78,8 @@ PROFILES: dict[str, list[str]] = {
         "cancelPortInOrder",
         # CNAM (LIDB) write — set the calling name on TN(s). Billable.
         "createLidbOrder",
+        # Call forwarding write: set or clear carrier call forwarding on TN(s).
+        "setCallForwarding",
     ],
     # Usage/billing reports via the async /reports engine.
     "billing": [

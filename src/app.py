@@ -17,6 +17,7 @@ from tools.voice import register_voice_tools
 from tools.discovery import register_discovery_tools
 from tools.numbers import register_numbers_tools
 from tools.cnam import register_cnam_tools
+from tools.tnoptions import register_tnoptions_tools
 from tools.reports import register_reports_tools
 from instructions import build_instructions
 from event_store import EventStore
@@ -64,6 +65,7 @@ async def lifespan(mcp_instance: FastMCP):
     register_discovery_tools(mcp_instance, _config)
     register_numbers_tools(mcp_instance, _config)
     register_cnam_tools(mcp_instance, _config)
+    register_tnoptions_tools(mcp_instance, _config)
     register_reports_tools(mcp_instance, _config)
 
     # Uniform tool gating: the enabled/excluded config (BW_MCP_TOOLS /

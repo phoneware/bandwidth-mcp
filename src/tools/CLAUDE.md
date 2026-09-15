@@ -40,6 +40,12 @@ requests against `{api_base}/api/v2/accounts/{accountId}/…`, parsed back to JS
 - **`reports.py`**: usage/billing over the async `/reports` engine: list report
   definitions, create an instance, poll until `Ready`, download the file (zip
   archives unpacked in memory, text truncated at 200k chars).
+- **`tnoptions.py`**: carrier-level call forwarding over the asynchronous TN Options
+  work-order engine (`/tnoptions`). Read (`numbers` profile): `getCallForwarding`,
+  `listTnOptionOrders`, `getTnOptionOrder`. Write (`numbers-write` profile):
+  `setCallForwarding`. Current forwarding is not stored on the TN itself but on the
+  per-TN SIP-peer record, so `getCallForwarding` resolves site and peer from
+  `tns/<tn>/tndetails` first, then reads `sites/<siteId>/sippeers/<peerId>/tns/<tn>`.
 - **`voice.py`**: `generateBXML` (dict verbs to BXML, optional auto-Gather for
   barge-in) and `respondToCallback` (first-write-wins BXML queue; pre-creates
   call state so BXML can be queued before the answer callback lands).

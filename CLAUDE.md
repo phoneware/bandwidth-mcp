@@ -24,7 +24,8 @@ delta on top:
   address on the allowlist gets a token. The Bandwidth credential lives in
   Secret Manager on the service and is never sent to a client. See
   [OAuth model](#oauth-model-servepy).
-- **Numbers / porting / carrier tools** (`src/tools/numbers.py`) and
+- **Numbers / porting / carrier tools** (`src/tools/numbers.py`),
+  **call forwarding** (`src/tools/tnoptions.py`), and
   **usage/billing reports** (`src/tools/reports.py`). Hand-written against
   Bandwidth's XML Dashboard API, which `from_openapi` cannot drive. This is the
   surface a carrier reseller actually lives in and the reason the fork exists.
@@ -308,6 +309,24 @@ the single source of truth for the whole surface. Filter precedence lives in
   scale to zero or fan out, or callback state and the token split.
 - **`setCredentials` is stdio-only** (it takes secret material as tool args). The
   hosted transport never registers it; auth there is the OAuth `/token` mint.
+- **TN Options work orders are asynchronous**: a 201 response means the order
+  was received, not that the change has applied. Poll `getTnOptionOrder` until
+  `ProcessingStatus` leaves `RECEIVED`/`PROCESSING`. It settles on `COMPLETE`,
+  `PARTIAL`, or `FAILED`, and `PARTIAL` means some numbers took the change and
+  others did not, so read `ErrorList` rather than treating not-`FAILED` as
+  success.
+- **Current call forwarding is only readable on the SIP-peer record**: `tndetails`
+  does not return forwarding configuration. Query `tns/<tn>/tndetails` to resolve
+  `site_id` and `peer_id`, then read `sites/<siteId>/sippeers/<peerId>/tns/<tn>`.
+- **Clearing call forwarding requires `systemDefault`**: in `setCallForwarding`,
+  sending `<CallForward>systemDefault</CallForward>` clears an existing forward,
+  while omitting the element entirely means `unchanged`.
+- **Call forwarding requires the Bandwidth product feature**: the account must
+  have Bandwidth's `CallForwarding` feature enabled, or the order fails with
+  error 13576.
+- **CallForward and origination route plans cannot co-exist**: Bandwidth will
+  accept the TN Options order without complaint, but the conflict causes failures
+  reported only on a later read.
 
 ## Conventions / rules
 - **Adding a hand-written tool**: put it in a `src/tools/*.py` module with a

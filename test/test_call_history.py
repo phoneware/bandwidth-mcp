@@ -363,3 +363,42 @@ async def test_search_voice_calls_searches_both_legs_for_phone_number(httpx_mock
     assert len(calls) == 2
     call_ids = {c["callId"] for c in calls}
     assert call_ids == {"call-leg-1", "call-leg-2"}
+
+
+@pytest.mark.asyncio
+async def test_search_voice_calls_both_legs_reports_insights_totals_not_page_size(httpx_mock: HTTPXMock):
+    """Each leg has more matches than one page returns; the total must come from
+    Insights' totalCount for each leg, not from how many rows came back.
+    Measured 2026-10-07 on the deployed connector: a 7-day window filtered by one
+    number reported totalCount=25 with limit=25, which is the page size."""
+    config = {"BW_ACCESS_TOKEN": "mock-token", "BW_ACCOUNT_ID": "5011369", "BW_ACCOUNTS": ["5011369"]}
+    mcp = FastMCP("test")
+    register_call_history_tools(mcp, config)
+
+    base = "https://insights.bandwidth.com/api/v1/voice/calls?accountId=5011369&startTime=gte%3A2026-10-06T00%3A00%3A00Z&endTime=lte%3A2026-10-06T01%3A00%3A00Z&limit=2&sort=startTime%3Adesc"
+    httpx_mock.add_response(
+        url=base + "&callingNumber=%2B14805552222",
+        status_code=200,
+        json={"data": {"totalCount": 40, "calls": [
+            {"callId": "out-1", "startTime": "2026-10-06T00:50:00Z", "callingNumber": "+14805552222", "calledNumber": "+19195551111"},
+            {"callId": "out-2", "startTime": "2026-10-06T00:30:00Z", "callingNumber": "+14805552222", "calledNumber": "+19195551112"},
+        ]}},
+    )
+    httpx_mock.add_response(
+        url=base + "&calledNumber=%2B14805552222",
+        status_code=200,
+        json={"data": {"totalCount": 60, "calls": [
+            {"callId": "in-1", "startTime": "2026-10-06T00:40:00Z", "callingNumber": "+19195553333", "calledNumber": "+14805552222"},
+            {"callId": "in-2", "startTime": "2026-10-06T00:20:00Z", "callingNumber": "+19195553334", "calledNumber": "+14805552222"},
+        ]}},
+    )
+
+    res = await mcp.call_tool(
+        "searchVoiceCalls",
+        {"start_time": "2026-10-06T00:00:00Z", "end_time": "2026-10-06T01:00:00Z", "phone_number": "+14805552222", "limit": 2},
+    )
+    sc = res.structured_content
+    assert [c["callId"] for c in sc["calls"]] == ["out-1", "in-1"]
+    assert sc["returnedCount"] == 2
+    assert sc["totalCount"] == 100
+    assert sc["totalByLeg"] == {"calling": 40, "called": 60}

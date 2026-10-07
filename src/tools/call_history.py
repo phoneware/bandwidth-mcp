@@ -322,11 +322,11 @@ def register_call_history_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
                             "error": f"Failed to search voice calls: {r.text}",
                             "status_code": r.status_code,
                         }
-                raw1 = resp1.json().get("data", {}).get("calls", [])
-                raw2 = resp2.json().get("data", {}).get("calls", [])
+                data1 = resp1.json().get("data", {})
+                data2 = resp2.json().get("data", {})
                 seen_cids = set()
                 merged_calls = []
-                for c in raw1 + raw2:
+                for c in data1.get("calls", []) + data2.get("calls", []):
                     cid = c.get("callId")
                     if cid and cid in seen_cids:
                         continue
@@ -337,7 +337,14 @@ def register_call_history_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
                 reverse = not sort.endswith(":asc")
                 merged_calls.sort(key=lambda c: c.get("startTime") or "", reverse=reverse)
                 raw_calls = merged_calls[:min(limit, 100)]
-                total_count = len(merged_calls)
+                # Each leg's page is capped at `limit`, so the merged list length is
+                # not the number of matches. Insights counts each leg; a call with
+                # the number on both legs is counted in both.
+                total_by_leg = {
+                    "calling": data1.get("totalCount", 0),
+                    "called": data2.get("totalCount", 0),
+                }
+                total_count = total_by_leg["calling"] + total_by_leg["called"]
             else:
                 resp = await client.get(base_url, headers=headers, params=params)
                 if resp.status_code == 403:
@@ -404,11 +411,14 @@ def register_call_history_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
                     }
                 )
 
-            return {
+            out: Dict[str, Any] = {
                 "totalCount": total_count,
                 "returnedCount": len(formatted_calls),
                 "calls": formatted_calls,
             }
+            if query_both:
+                out["totalByLeg"] = total_by_leg
+            return out
 
     @mcp.tool(
         name="getVoiceCall",

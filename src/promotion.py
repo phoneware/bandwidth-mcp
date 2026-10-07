@@ -17,10 +17,10 @@ import os
 import time
 from abc import ABC, abstractmethod
 from contextvars import ContextVar
-from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Set
 
-from fastmcp import FastMCP
+from fastmcp import FastMCP, Context
 from mcp.types import ToolAnnotations
 
 # Context variable for the current request's authenticated user
@@ -71,7 +71,7 @@ def get_window_seconds() -> float:
 class UsageRecord:
     count: int
     last_used: float  # epoch seconds
-
+    timestamps: List[float] = field(default_factory=list)
 
 class UsageStore(ABC):
     @abstractmethod
@@ -94,13 +94,38 @@ class InMemoryUsageStore(UsageStore):
     async def record_call(self, user_key: str, tool_name: str) -> UsageRecord:
         user_records = self._data.setdefault(user_key, {})
         existing = user_records.get(tool_name)
-        new_count = (existing.count + 1) if existing else 1
-        record = UsageRecord(count=new_count, last_used=time.time())
+        now = time.time()
+        cutoff = now - get_window_seconds()
+        existing_ts = (
+            existing.timestamps
+            if (existing and existing.timestamps)
+            else ([existing.last_used] * existing.count if (existing and existing.last_used >= cutoff) else [])
+        )
+        valid_ts = [t for t in existing_ts if t >= cutoff]
+        valid_ts.append(now)
+        record = UsageRecord(count=len(valid_ts), last_used=now, timestamps=valid_ts)
         user_records[tool_name] = record
         return record
 
     async def get_user_usage(self, user_key: str) -> Dict[str, UsageRecord]:
-        return dict(self._data.get(user_key, {}))
+        now = time.time()
+        cutoff = now - get_window_seconds()
+        raw = self._data.get(user_key, {})
+        result = {}
+        for tool_name, rec in raw.items():
+            ts = (
+                rec.timestamps
+                if rec.timestamps
+                else ([rec.last_used] * rec.count if rec.last_used >= cutoff else [])
+            )
+            valid_ts = [t for t in ts if t >= cutoff]
+            if valid_ts:
+                result[tool_name] = UsageRecord(
+                    count=len(valid_ts),
+                    last_used=max(valid_ts),
+                    timestamps=valid_ts,
+                )
+        return result
 
 
 class FirestoreUsageStore(UsageStore):
@@ -109,8 +134,10 @@ class FirestoreUsageStore(UsageStore):
     def __init__(self, collection_name: str = "mcp_tool_usage") -> None:
         from google.cloud import firestore  # type: ignore
 
-        project = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get(
-            "GCP_PROJECT"
+        project = (
+            os.environ.get("GOOGLE_CLOUD_PROJECT")
+            or os.environ.get("GCP_PROJECT")
+            or "phoneware-edge"
         )
         self._db = firestore.Client(project=project)
         self._collection = self._db.collection(collection_name)
@@ -125,30 +152,40 @@ class FirestoreUsageStore(UsageStore):
         doc_id = self._doc_id(user_key, tool_name)
         doc_ref = self._collection.document(doc_id)
         now = time.time()
+        cutoff = now - get_window_seconds()
         try:
             snapshot = doc_ref.get()
-            count = 1
+            valid_ts = []
             if snapshot.exists:
                 data = snapshot.to_dict() or {}
-                count = int(data.get("count", 0)) + 1
+                raw_ts = data.get("timestamps")
+                if isinstance(raw_ts, list):
+                    valid_ts = [float(t) for t in raw_ts if float(t) >= cutoff]
+                else:
+                    last_used = float(data.get("lastUsed", 0.0))
+                    if last_used >= cutoff:
+                        count = int(data.get("count", 1))
+                        valid_ts = [last_used] * min(count, 100)
+            valid_ts.append(now)
+            count = len(valid_ts)
             doc_ref.set(
                 {
                     "userKey": user_key,
                     "toolName": tool_name,
                     "count": count,
                     "lastUsed": now,
+                    "timestamps": valid_ts,
                 }
             )
-            # Invalidate cache for user
             self._cache.pop(user_key, None)
-            return UsageRecord(count=count, last_used=now)
+            return UsageRecord(count=count, last_used=now, timestamps=valid_ts)
         except Exception as e:
-            # Usage tracking is best-effort and must not fail tool execution
             print(f"Warning: FirestoreUsageStore.record_call failed: {e}")
-            return UsageRecord(count=1, last_used=now)
+            return UsageRecord(count=1, last_used=now, timestamps=[now])
 
     async def get_user_usage(self, user_key: str) -> Dict[str, UsageRecord]:
         now = time.time()
+        cutoff = now - get_window_seconds()
         cached = self._cache.get(user_key)
         if cached and (now - cached[0]) < self._cache_ttl:
             return dict(cached[1])
@@ -159,10 +196,19 @@ class FirestoreUsageStore(UsageStore):
             for doc in query:
                 data = doc.to_dict() or {}
                 t_name = data.get("toolName")
-                if t_name:
+                if not t_name:
+                    continue
+                raw_ts = data.get("timestamps")
+                if isinstance(raw_ts, list):
+                    valid_ts = [float(t) for t in raw_ts if float(t) >= cutoff]
+                else:
+                    last_used = float(data.get("lastUsed", 0.0))
+                    valid_ts = [last_used] if last_used >= cutoff else []
+                if valid_ts:
                     results[t_name] = UsageRecord(
-                        count=int(data.get("count", 0)),
-                        last_used=float(data.get("lastUsed", 0.0)),
+                        count=len(valid_ts),
+                        last_used=max(valid_ts),
+                        timestamps=valid_ts,
                     )
             self._cache[user_key] = (now, results)
             return results
@@ -182,7 +228,11 @@ def get_usage_store() -> UsageStore:
 
     use_firestore = os.environ.get("MCP_PERSISTENCE") == "firestore" or (
         os.environ.get("MCP_PERSISTENCE") != "file"
-        and bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
+        and (
+            bool(os.environ.get("GOOGLE_CLOUD_PROJECT"))
+            or bool(os.environ.get("GCP_PROJECT"))
+            or bool(os.environ.get("K_SERVICE"))
+        )
     )
     if use_firestore:
         try:
@@ -241,11 +291,13 @@ async def record_call_api_invocation(
     record = await store.record_call(uk, tool_name)
     threshold = get_threshold()
 
-    was_promoted = record.count == threshold
+    was_promoted = record.count >= threshold
     if was_promoted and mcp_instance and config:
         promote_tool_on_server(mcp_instance, tool_name, config)
-
     return {"promoted": was_promoted, "count": record.count}
+
+
+_PROMOTED_TOOLS: Set[str] = set()
 
 
 def promote_tool_on_server(
@@ -261,15 +313,17 @@ def promote_tool_on_server(
     if not op:
         return False
 
+    _PROMOTED_TOOLS.add(op.name)
+
     # Check if already registered in local provider
     local_prov = getattr(mcp_instance, "local_provider", None)
     if local_prov and hasattr(local_prov, "_tools") and op.name in local_prov._tools:
         return True
 
-    async def promoted_handler(args: Dict[str, Any] = {}) -> Dict[str, Any]:
+    async def promoted_handler(args: Dict[str, Any] = {}, ctx: Context = None) -> Dict[str, Any]:
         from tools.meta import _dispatch_operation
 
-        return await _dispatch_operation(op, args, config, ctx=None)
+        return await _dispatch_operation(op, args, config, ctx=ctx)
 
     try:
         mcp_instance.tool(
@@ -282,3 +336,69 @@ def promote_tool_on_server(
     except Exception as e:
         print(f"Warning: could not dynamically register promoted tool {op.name}: {e}")
         return False
+
+
+def setup_promotions(mcp_instance: FastMCP, config: Dict[str, Any]) -> None:
+    """Wire per-user tool promotion filters onto FastMCP."""
+    orig_list_tools = mcp_instance._list_tools
+    orig_get_tool = mcp_instance._get_tool
+
+    async def _user_scoped_list_tools():
+        all_tools = await orig_list_tools()
+        if not promotion_enabled():
+            return [
+                t
+                for t in all_tools
+                if t.name not in _PROMOTED_TOOLS
+                and not (t.description and t.description.startswith("[Promoted Tool]"))
+            ]
+
+        current_user = get_current_user()
+        promoted_for_user = set(await get_promoted_tool_names(current_user))
+        filtered = []
+        seen = set()
+
+        for t in all_tools:
+            if t.name in _PROMOTED_TOOLS or (
+                t.description and t.description.startswith("[Promoted Tool]")
+            ):
+                if t.name not in promoted_for_user:
+                    continue
+            filtered.append(t)
+            seen.add(t.name)
+
+        # Restore any persisted promotions that crossed threshold for this user
+        for p_name in promoted_for_user:
+            if p_name not in seen:
+                promote_tool_on_server(mcp_instance, p_name, config)
+                t = await orig_get_tool(p_name)
+                if t:
+                    filtered.append(t)
+                    seen.add(p_name)
+
+        return filtered
+
+    async def _user_scoped_get_tool(name: str, version=None):
+        current_user = get_current_user()
+        promoted_for_user = (
+            set(await get_promoted_tool_names(current_user))
+            if promotion_enabled()
+            else set()
+        )
+
+        tool = await orig_get_tool(name, version)
+        if tool is None and promotion_enabled() and name in promoted_for_user:
+            promote_tool_on_server(mcp_instance, name, config)
+            tool = await orig_get_tool(name, version)
+
+        if tool is not None and (
+            tool.name in _PROMOTED_TOOLS
+            or (tool.description and tool.description.startswith("[Promoted Tool]"))
+        ):
+            if tool.name not in promoted_for_user:
+                return None  # Scoped to user who earned promotion
+
+        return tool
+
+    mcp_instance._list_tools = _user_scoped_list_tools
+    mcp_instance._get_tool = _user_scoped_get_tool

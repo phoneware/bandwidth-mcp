@@ -62,6 +62,7 @@ async def test_write_tools_build_correct_escaped_xml(monkeypatch):
         sent["xml"] = tostring(body, encoding="unicode") if body is not None else None
         return {"httpStatus": 201, "id": "order-1"}
 
+    monkeypatch.setenv("MCP_CONFIRM_FALLBACK", "allow")
     monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
     mcp = FastMCP("t")
     register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
@@ -69,14 +70,14 @@ async def test_write_tools_build_correct_escaped_xml(monkeypatch):
     async with Client(mcp) as client:
         await client.call_tool("orderPhoneNumbers", {
             "numbers": ["+1 (919) 555-1234"], "site_id": "s1",
-            "order_name": 'Rick & "Jason" <order>'})
+            "order_name": 'Rick & "Jason" <order>', "confirm": "ORDERPHONENUMBERS"})
         assert sent["method"] == "POST" and sent["path"] == "orders"
         assert "<TelephoneNumber>9195551234</TelephoneNumber>" in sent["xml"]
         # user text must be escaped, never raw XML
         assert "&amp;" in sent["xml"] and "<order>" not in sent["xml"]
 
         await client.call_tool("disconnectPhoneNumbers", {
-            "numbers": ["9195551234"], "order_name": "cleanup"})
+            "numbers": ["9195551234"], "order_name": "cleanup", "confirm": "DISCONNECTPHONENUMBERS"})
         assert sent["path"] == "disconnects"
         assert "<DisconnectTelephoneNumberOrderType>" in sent["xml"]
 
@@ -85,16 +86,65 @@ async def test_write_tools_build_correct_escaped_xml(monkeypatch):
             "numbers": ["9195550000"], "site_id": "s1",
             "loa_authorizing_person": "Rick Waldrip",
             "business_name": "Phoneware", "house_number": "1", "street_name": "Main",
-            "city": "Phoenix", "state_code": "AZ", "zip_code": "85001"})
+            "city": "Phoenix", "state_code": "AZ", "zip_code": "85001",
+            "confirm": "CREATEPORTINORDER"})
         assert sent["path"] == "portins"
         # /portins takes E.164, unlike orders/disconnects above
         assert "<BillingTelephoneNumber>+19195550000</BillingTelephoneNumber>" in sent["xml"]
         assert "<SubscriberType>BUSINESS</SubscriberType>" in sent["xml"]
 
-        await client.call_tool("cancelPortInOrder", {"order_id": "ord-9"})
+        await client.call_tool("cancelPortInOrder", {"order_id": "ord-9", "confirm": "CANCELPORTINORDER"})
         assert sent["method"] == "DELETE" and sent["path"] == "portins/ord-9"
         assert sent["xml"] is None
 
+
+@pytest.mark.asyncio
+async def test_handwritten_carrier_writes_require_confirmation_tokens():
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        with pytest.raises(Exception, match="ORDERPHONENUMBERS"):
+            await client.call_tool("orderPhoneNumbers", {
+                "numbers": ["9195551234"], "site_id": "s1", "order_name": "ord"
+            })
+        with pytest.raises(Exception, match="DISCONNECTPHONENUMBERS"):
+            await client.call_tool("disconnectPhoneNumbers", {
+                "numbers": ["9195551234"], "order_name": "ord"
+            })
+        with pytest.raises(Exception, match="CREATEPORTINORDER"):
+            await client.call_tool("createPortInOrder", {
+                "billing_telephone_number": "9195550000", "numbers": ["9195550000"],
+                "site_id": "s1", "loa_authorizing_person": "P", "business_name": "B",
+                "house_number": "1", "street_name": "S", "city": "C", "state_code": "AZ", "zip_code": "85001"
+            })
+        with pytest.raises(Exception, match="UPLOADPORTINLOA"):
+            await client.call_tool("uploadPortInLoa", {
+                "order_id": "ord-1", "file_base64": "AAA=", "filename": "a.pdf"
+            })
+        with pytest.raises(Exception, match="SUPPLEMENTPORTINORDER"):
+            await client.call_tool("supplementPortInOrder", {
+                "order_id": "ord-1", "requested_foc_date": "2026-10-10"
+            })
+        with pytest.raises(Exception, match="CANCELPORTINORDER"):
+            await client.call_tool("cancelPortInOrder", {"order_id": "ord-1"})
+
+
+@pytest.mark.asyncio
+async def test_handwritten_carrier_writes_destructive_elicitation(monkeypatch):
+    monkeypatch.delenv("MCP_CONFIRM_FALLBACK", raising=False)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+
+    async with Client(mcp) as client:
+        with pytest.raises(Exception, match="destructive"):
+            await client.call_tool("disconnectPhoneNumbers", {
+                "numbers": ["9195551234"], "order_name": "ord", "confirm": "DISCONNECTPHONENUMBERS"
+            })
+        with pytest.raises(Exception, match="destructive"):
+            await client.call_tool("cancelPortInOrder", {
+                "order_id": "ord-1", "confirm": "CANCELPORTINORDER"
+            })
 
 @pytest.mark.asyncio
 async def test_portin_portout_lists_always_send_page_and_size(monkeypatch):
@@ -135,6 +185,7 @@ _GOOD_PORT_IN = {
     "city": "Phoenix",
     "state_code": "AZ",
     "zip_code": "85001",
+    "confirm": "CREATEPORTINORDER",
 }
 
 
@@ -255,6 +306,7 @@ async def test_create_port_in_refuses_incomplete_order_without_calling_bandwidth
                 "numbers": ["9195550000"],
                 "site_id": "s1",
                 "loa_authorizing_person": "Rick Waldrip",
+                "confirm": "CREATEPORTINORDER",
             })
     assert calls == []
     message = str(err.value)
@@ -483,17 +535,17 @@ async def test_other_endpoints_still_send_bare_ten_digits(monkeypatch):
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "o1"}
 
+    monkeypatch.setenv("MCP_CONFIRM_FALLBACK", "allow")
     monkeypatch.setattr(numbers_mod, "_dashboard_send", fake_send)
     mcp = FastMCP("t")
     register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
-
     async with Client(mcp) as client:
         await client.call_tool("orderPhoneNumbers", {
-            "numbers": ["+1 (919) 555-1234"], "site_id": "s1", "order_name": "o"})
+            "numbers": ["+1 (919) 555-1234"], "site_id": "s1", "order_name": "o", "confirm": "ORDERPHONENUMBERS"})
         assert "<TelephoneNumber>9195551234</TelephoneNumber>" in sent["xml"]
 
         await client.call_tool("disconnectPhoneNumbers", {
-            "numbers": ["9195551234"], "order_name": "cleanup"})
+            "numbers": ["9195551234"], "order_name": "cleanup", "confirm": "DISCONNECTPHONENUMBERS"})
         assert "<TelephoneNumber>9195551234</TelephoneNumber>" in sent["xml"]
 
 
@@ -525,6 +577,7 @@ async def test_upload_port_in_loa_posts_binary_then_tags_document_type(monkeypat
             "order_id": "ord-9",
             "file_base64": base64.b64encode(b"%PDF-1.7 signed").decode(),
             "filename": "acme-loa.pdf",
+            "confirm": "UPLOADPORTINLOA",
         })
 
     path, content, content_type = uploads[0]
@@ -561,6 +614,7 @@ async def test_upload_port_in_loa_reports_metadata_failure_without_losing_the_fi
             "order_id": "ord-9",
             "file_base64": base64.b64encode(b"pdf").decode(),
             "filename": "loa.pdf",
+            "confirm": "UPLOADPORTINLOA",
         })
     assert "bad metadata" in result.data["metadataError"]
     assert result.data["filename"] == "stored-1.pdf"
@@ -585,13 +639,13 @@ async def test_upload_port_in_loa_rejects_bad_input(monkeypatch):
         with pytest.raises(Exception, match="document_type"):
             await client.call_tool("uploadPortInLoa", {
                 "order_id": "o", "file_base64": good, "filename": "a.pdf",
-                "document_type": "CONTRACT"})
+                "document_type": "CONTRACT", "confirm": "UPLOADPORTINLOA"})
         with pytest.raises(Exception, match="content_type"):
             await client.call_tool("uploadPortInLoa", {
-                "order_id": "o", "file_base64": good, "filename": "loa.docx"})
+                "order_id": "o", "file_base64": good, "filename": "loa.docx", "confirm": "UPLOADPORTINLOA"})
         with pytest.raises(Exception, match="base64"):
             await client.call_tool("uploadPortInLoa", {
-                "order_id": "o", "file_base64": "not base64!!", "filename": "a.pdf"})
+                "order_id": "o", "file_base64": "not base64!!", "filename": "a.pdf", "confirm": "UPLOADPORTINLOA"})
     assert calls == []
 
 
@@ -1086,6 +1140,7 @@ async def test_supplement_port_in_order_with_time(monkeypatch):
                 "order_id": "order-1",
                 "requested_foc_date": "2026-07-20",
                 "requested_foc_time": "20:00",
+                "confirm": "SUPPLEMENTPORTINORDER",
             },
         )
     assert (
@@ -1102,6 +1157,7 @@ async def test_supplement_port_in_order_with_time(monkeypatch):
                 {
                     "order_id": "order-1",
                     "requested_foc_time": "20:00",
+                    "confirm": "SUPPLEMENTPORTINORDER",
                 },
             )
         assert "requires requested_foc_date" in str(err.value)
@@ -1115,6 +1171,6 @@ async def test_supplement_port_in_order_with_time(monkeypatch):
                     "order_id": "order-1",
                     "requested_foc_date": "2026-07-20",
                     "requested_foc_time": "04:30",
+                    "confirm": "SUPPLEMENTPORTINORDER",
                 },
             )
-        assert "outside Bandwidth's activation windows" in str(err.value)

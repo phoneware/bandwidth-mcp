@@ -89,6 +89,8 @@ async def lifespan(mcp_instance: FastMCP):
                 remover(tool.name)
             except Exception as e:
                 print(f"Warning: could not remove tool {tool.name}: {e}")
+    from promotion import setup_promotions
+    setup_promotions(mcp_instance, _config)
 
     # Auto-configure voice app callbacks to current tunnel/base URL
     base_url = _config.get("BW_MCP_BASE_URL")

@@ -29,6 +29,7 @@ start = "app:main"
 py-modules = [
     "app", "config", "servers", "server_utils", "resources",
     "instructions", "profiles", "oauth", "gauth", "event_store", "callbacks", "tunnel",
+    "registry", "safety", "xml_adapter", "promotion", "urls",
 ]
 packages = ["specs", "tools"]
 

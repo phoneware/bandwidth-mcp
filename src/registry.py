@@ -150,7 +150,6 @@ def _resolve_schema(
             if k != "$ref":
                 merged[k] = v
         return _resolve_schema(merged, root_spec, depth + 1)
-
     out = dict(schema)
     if "properties" in out and isinstance(out["properties"], dict):
         out["properties"] = {
@@ -159,6 +158,12 @@ def _resolve_schema(
         }
     if "items" in out and isinstance(out["items"], dict):
         out["items"] = _resolve_schema(out["items"], root_spec, depth + 1)
+    if "oneOf" in out and isinstance(out["oneOf"], list):
+        out["oneOf"] = [_resolve_schema(s, root_spec, depth + 1) for s in out["oneOf"]]
+    if "anyOf" in out and isinstance(out["anyOf"], list):
+        out["anyOf"] = [_resolve_schema(s, root_spec, depth + 1) for s in out["anyOf"]]
+    if "allOf" in out and isinstance(out["allOf"], list):
+        out["allOf"] = [_resolve_schema(s, root_spec, depth + 1) for s in out["allOf"]]
     return out
 
 
@@ -304,7 +309,7 @@ class ApiRegistry:
                 # Operation classification
                 is_write = method in ("POST", "PUT", "PATCH", "DELETE")
                 bare_lower = bare_id.lower()
-                is_destructive = (
+                is_destructive = is_write and (
                     method == "DELETE"
                     or any(k in bare_lower for k in _DESTRUCTIVE_KEYWORDS)
                     or any(k in path.lower() for k in ("disconnect", "cancel"))
@@ -337,6 +342,31 @@ class ApiRegistry:
                     annotations=annotations,
                 )
 
+                # Disambiguate duplicate operationIds within the same spec
+                if namespaced_name in self._operations:
+                    existing_op = self._operations[namespaced_name]
+                    if "{" in path and "}" in path:
+                        param_match = re.search(r"\{([^}]+)\}$", path)
+                        suffix = f"By{param_match.group(1).capitalize()}" if param_match else "ById"
+                        namespaced_name = f"{namespaced_name}{suffix}"
+                        bare_id = f"{bare_id}{suffix}"
+                    elif "{" in existing_op.path and "}" in existing_op.path:
+                        param_match = re.search(r"\{([^}]+)\}$", existing_op.path)
+                        suffix = f"By{param_match.group(1).capitalize()}" if param_match else "ById"
+                        new_existing_name = f"{existing_op.name}{suffix}"
+                        new_existing_bare = f"{existing_op.bare_name}{suffix}"
+                        existing_op.name = new_existing_name
+                        existing_op.bare_name = new_existing_bare
+                        self._operations[new_existing_name] = existing_op
+                        self._bare_to_namespaced.setdefault(new_existing_bare, []).append(new_existing_name)
+                        if existing_op.bare_name in self._bare_to_namespaced:
+                            self._bare_to_namespaced[existing_op.bare_name] = [
+                                n for n in self._bare_to_namespaced[existing_op.bare_name]
+                                if n != existing_op.name
+                            ]
+
+                reg_op.name = namespaced_name
+                reg_op.bare_name = bare_id
                 self._operations[namespaced_name] = reg_op
                 self._bare_to_namespaced.setdefault(bare_id, []).append(namespaced_name)
 

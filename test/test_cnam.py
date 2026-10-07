@@ -41,6 +41,7 @@ async def test_create_lidb_order_builds_correct_escaped_xml(monkeypatch):
             "use_type": "residential",   # lower-case must normalize
             "visibility": "private",
             "customer_order_id": "ref-42",
+            "confirm": "CREATELIDBORDER",
         })
     assert sent["method"] == "POST" and sent["path"] == "lidbs"
     xml = sent["xml"]
@@ -62,7 +63,7 @@ async def test_create_lidb_order_child_order_matches_schema(monkeypatch):
     mcp, sent, _ = _register(monkeypatch)
     async with Client(mcp) as client:
         await client.call_tool("createLidbOrder", {
-            "numbers": ["9195551234"], "calling_name": "ACME"})
+            "numbers": ["9195551234"], "calling_name": "ACME", "confirm": "CREATELIDBORDER"})
     xml = sent["xml"]
     order = [
         xml.index("<TelephoneNumbers>"),
@@ -85,7 +86,9 @@ async def test_create_lidb_order_rejects_overlong_name(monkeypatch):
         with pytest.raises(Exception, match="15 characters"):
             await client.call_tool("createLidbOrder", {
                 "numbers": ["9195551234"],
-                "calling_name": "This Name Is Way Too Long"})
+                "calling_name": "This Name Is Way Too Long",
+                "confirm": "CREATELIDBORDER",
+            })
 
 
 @pytest.mark.asyncio
@@ -94,10 +97,10 @@ async def test_create_lidb_order_validates_enums(monkeypatch):
     async with Client(mcp) as client:
         with pytest.raises(Exception, match="use_type"):
             await client.call_tool("createLidbOrder", {
-                "numbers": ["9195551234"], "calling_name": "OK", "use_type": "GOV"})
+                "numbers": ["9195551234"], "calling_name": "OK", "use_type": "GOV", "confirm": "CREATELIDBORDER"})
         with pytest.raises(Exception, match="visibility"):
             await client.call_tool("createLidbOrder", {
-                "numbers": ["9195551234"], "calling_name": "OK", "visibility": "SECRET"})
+                "numbers": ["9195551234"], "calling_name": "OK", "visibility": "SECRET", "confirm": "CREATELIDBORDER"})
 
 
 @pytest.mark.asyncio
@@ -106,12 +109,20 @@ async def test_create_lidb_order_requires_numbers_and_name(monkeypatch):
     async with Client(mcp) as client:
         with pytest.raises(Exception, match="at least one phone number"):
             await client.call_tool("createLidbOrder", {
-                "numbers": [], "calling_name": "ACME"})
+                "numbers": [], "calling_name": "ACME", "confirm": "CREATELIDBORDER"})
         with pytest.raises(Exception, match="calling_name"):
             await client.call_tool("createLidbOrder", {
-                "numbers": ["9195551234"], "calling_name": "   "})
+                "numbers": ["9195551234"], "calling_name": "   ", "confirm": "CREATELIDBORDER"})
 
 
+@pytest.mark.asyncio
+async def test_create_lidb_order_requires_confirmation(monkeypatch):
+    mcp, _, _ = _register(monkeypatch)
+    async with Client(mcp) as client:
+        with pytest.raises(Exception, match="CREATELIDBORDER"):
+            await client.call_tool("createLidbOrder", {
+                "numbers": ["9195551234"], "calling_name": "ACME"
+            })
 @pytest.mark.asyncio
 async def test_read_tools_normalize_tn_and_build_paths(monkeypatch):
     mcp, _, reads = _register(monkeypatch)

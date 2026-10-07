@@ -96,3 +96,26 @@ def test_classification_of_writes_and_destructive():
     assert delete_site.is_write
     assert delete_site.is_destructive
     assert delete_site.annotations.destructive_hint is True
+
+
+def test_duplicate_operation_ids_disambiguated():
+    reg = get_registry()
+    collection_op = reg.get_operation("numbers.ReadSbcNodeGroups")
+    item_op = reg.get_operation("numbers.ReadSbcNodeGroupsById")
+
+    assert collection_op is not None
+    assert item_op is not None
+    assert collection_op.path == "/admin/data/sbcNodeGroups"
+    assert item_op.path == "/admin/data/sbcNodeGroups/{id}"
+    assert collection_op.name != item_op.name
+
+
+def test_read_disconnect_orders_not_destructive():
+    reg = get_registry()
+    op = reg.get_operation("numbers.ReadDisconnectOrders")
+    assert op is not None
+    assert op.method == "GET"
+    assert not op.is_write
+    assert not op.is_destructive
+    assert op.annotations.destructive_hint is False
+    assert op.annotations.read_only_hint is True

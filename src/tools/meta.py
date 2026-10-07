@@ -25,7 +25,13 @@ from registry import get_registry, RegistryOperation
 from xml_adapter import execute_numbers_operation
 from promotion import record_call_api_invocation, get_current_user
 from tools.discovery import _resolve_account
-
+from safety import (
+    check_confirmation,
+    confirm_token_for,
+    elicit_destructive_confirmation,
+    validate_and_quote_path_param,
+    validate_declared_args,
+)
 _READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 _WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=True)
 
@@ -47,21 +53,7 @@ def _summarize_args(args: Dict[str, Any]) -> str:
             break
     return ", ".join(parts) if parts else "(no arguments)"
 
-
-def _is_confirmed(args: Dict[str, Any]) -> bool:
-    """Check if the caller passed an explicit confirm token."""
-    if not isinstance(args, dict):
-        return False
-    conf = args.get("confirm")
-    if conf is True:
-        return True
-    if isinstance(conf, str) and conf.strip().upper() == "CONFIRM":
-        return True
-    conf_tok = args.get("confirm_token")
-    if conf_tok and str(conf_tok).strip():
-        return True
-    return False
-
+# Argument summary for confirmation messages
 
 async def _dispatch_json_operation(
     op: RegistryOperation,
@@ -69,6 +61,11 @@ async def _dispatch_json_operation(
     config: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Execute a JSON-based OpenAPI operation (voice, messaging, insights, lookup, etc.)."""
+    # 0. Validate declared arguments
+    arg_err = validate_declared_args(op, args)
+    if arg_err is not None:
+        return arg_err
+
     token = config.get("BW_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("Not authenticated with Bandwidth.")
@@ -112,7 +109,8 @@ async def _dispatch_json_operation(
             raise ValueError(
                 f"Missing required path parameter '{pname}' for operation '{op.name}'"
             )
-        path = path.replace(placeholder, str(val))
+        encoded_val = validate_and_quote_path_param(pname, val)
+        path = path.replace(placeholder, encoded_val)
 
     base_url = op.base_url.rstrip("/")
     rel_path = path.lstrip("/")
@@ -130,20 +128,39 @@ async def _dispatch_json_operation(
 
     # 3. Request body for write methods
     body = None
+    raw_content = None
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json",
     }
     if op.method in ("POST", "PUT", "PATCH"):
-        headers["Content-Type"] = "application/json"
         body_data = {
             k: v
             for k, v in args.items()
             if k not in used_keys
             and k.lower() not in ("confirm", "confirm_token", "account_id", "accountid")
         }
-        if body_data:
-            body = body_data
+        is_xml_req = (
+            op.request_body_content_type == "application/xml"
+            or "xml" in (op.request_body_content_type or "").lower()
+        )
+        if is_xml_req:
+            headers["Content-Type"] = "application/xml"
+            xml_str = ""
+            for key in ("bxml", "xml", "body", "content"):
+                if key in body_data and isinstance(body_data[key], str):
+                    xml_str = body_data[key]
+                    break
+            if not xml_str and body_data:
+                for val in body_data.values():
+                    if isinstance(val, str) and (val.strip().startswith("<") or len(body_data) == 1):
+                        xml_str = val
+                        break
+            raw_content = xml_str.encode("utf-8") if isinstance(xml_str, str) else xml_str
+        else:
+            headers["Content-Type"] = "application/json"
+            if body_data:
+                body = body_data
 
     # 4. Dispatch request
     async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
@@ -151,10 +168,10 @@ async def _dispatch_json_operation(
             method=op.method,
             url=full_url,
             params=query_params or None,
-            json=body,
+            json=body if raw_content is None else None,
+            content=raw_content,
             headers=headers,
         )
-
     # 5. Format response
     result: Dict[str, Any] = {
         "status_code": resp.status_code,
@@ -187,73 +204,18 @@ async def _dispatch_operation(
     ctx: Optional[Context] = None,
 ) -> Dict[str, Any]:
     """Uniform dispatch for any operation with confirm and elicitation gates."""
-    # Gate 1: Write confirmation token
-    if op.is_write and not _is_confirmed(args):
-        return {
-            "error": (
-                f"Write operation '{op.name}' requires confirmation. "
-                f"Pass confirm='CONFIRM' to proceed."
-            ),
-            "requires_confirmation": True,
-            "tool_name": op.name,
-        }
+    # Gate 1: Write confirmation token (per operation)
+    if op.is_write:
+        conf_err = check_confirmation(op.name, args.get("confirm"))
+        if conf_err is not None:
+            return conf_err
 
     # Gate 2: Destructive elicitation prompt
     if op.is_destructive:
-        confirmed = False
         summary = _summarize_args(args)
-        message = (
-            f"This tool can permanently change or delete carrier data.\n\n"
-            f"Tool: {op.name}\n"
-            f"Method: {op.method} {op.path}\n"
-            f"Arguments: {summary}\n\n"
-            f"Proceed with execution?"
-        )
-
-        if ctx is not None and hasattr(ctx, "elicit"):
-            try:
-                elicit_res = await ctx.elicit(
-                    message=message,
-                    response_type=bool,
-                    response_title="Confirm Execution",
-                    response_description="Enter 'yes' / True to confirm destructive operation.",
-                )
-                val = getattr(elicit_res, "value", None)
-                if val is None:
-                    val = getattr(elicit_res, "data", None)
-                if val is True:
-                    confirmed = True
-                else:
-                    return {
-                        "error": f"User declined or cancelled destructive operation '{op.name}'.",
-                        "cancelled": True,
-                    }
-            except Exception as e:
-                fallback = os.environ.get("MCP_CONFIRM_FALLBACK", "fail").lower()
-                if fallback == "allow":
-                    confirmed = True
-                else:
-                    return {
-                        "error": (
-                            f"Tool '{op.name}' is destructive and the connected client does not support confirmation prompts. "
-                            f"Set MCP_CONFIRM_FALLBACK=allow to bypass on such clients, or use a client that supports MCP elicitation."
-                        ),
-                        "elicitation_unsupported": True,
-                    }
-        else:
-            fallback = os.environ.get("MCP_CONFIRM_FALLBACK", "fail").lower()
-            if fallback == "allow":
-                confirmed = True
-            else:
-                return {
-                    "error": (
-                        f"Tool '{op.name}' is destructive and no elicitation context was provided. "
-                        f"Set MCP_CONFIRM_FALLBACK=allow to allow unprompted destructive execution in automated harnesses."
-                    ),
-                    "elicitation_unsupported": True,
-                }
-
-    # Dispatch to appropriate adapter
+        elicit_err = await elicit_destructive_confirmation(op.name, summary, ctx)
+        if elicit_err is not None:
+            return elicit_err
     if op.is_xml:
         return await execute_numbers_operation(op, args, config)
     return await _dispatch_json_operation(op, args, config)

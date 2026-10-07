@@ -58,6 +58,7 @@ async def test_set_call_forwarding_builds_correct_xml_and_child_order(monkeypatc
                 "numbers": ["+1 (919) 555-1234", "9195550000"],
                 "forward_to": "+1 (919) 555-9999",
                 "customer_order_id": "ref-42",
+                "confirm": "SETCALLFORWARDING",
             },
         )
 
@@ -80,6 +81,7 @@ async def test_set_call_forwarding_builds_correct_xml_and_child_order(monkeypatc
             {
                 "numbers": ["9195551234"],
                 "forward_to": "9195559999",
+                "confirm": "SETCALLFORWARDING",
             },
         )
     assert "CustomerOrderId" not in sent["xml"]
@@ -94,6 +96,7 @@ async def test_set_call_forwarding_empty_forward_to_clears_forwarding(monkeypatc
             {
                 "numbers": ["9195551234"],
                 "forward_to": "",
+                "confirm": "SETCALLFORWARDING",
             },
         )
     assert "<CallForward>systemDefault</CallForward>" in sent["xml"]
@@ -105,6 +108,7 @@ async def test_set_call_forwarding_empty_forward_to_clears_forwarding(monkeypatc
             {
                 "numbers": ["9195551234"],
                 "forward_to": "   ",
+                "confirm": "SETCALLFORWARDING",
             },
         )
     assert "<CallForward>systemDefault</CallForward>" in sent["xml"]
@@ -120,6 +124,7 @@ async def test_set_call_forwarding_validates_inputs(monkeypatch):
                 {
                     "numbers": [],
                     "forward_to": "9195559999",
+                    "confirm": "SETCALLFORWARDING",
                 },
             )
         with pytest.raises(Exception, match="10-digit phone number"):
@@ -128,6 +133,7 @@ async def test_set_call_forwarding_validates_inputs(monkeypatch):
                 {
                     "numbers": ["9195551234"],
                     "forward_to": "123",
+                    "confirm": "SETCALLFORWARDING",
                 },
             )
         with pytest.raises(Exception, match="10-digit phone number"):
@@ -136,10 +142,23 @@ async def test_set_call_forwarding_validates_inputs(monkeypatch):
                 {
                     "numbers": ["9195551234"],
                     "forward_to": "not-a-number",
+                    "confirm": "SETCALLFORWARDING",
                 },
             )
 
 
+@pytest.mark.asyncio
+async def test_set_call_forwarding_requires_confirmation(monkeypatch):
+    mcp, _, _, _, _, _ = _register(monkeypatch)
+    async with Client(mcp) as client:
+        with pytest.raises(Exception, match="SETCALLFORWARDING"):
+            await client.call_tool(
+                "setCallForwarding",
+                {
+                    "numbers": ["9195551234"],
+                    "forward_to": "9195559999",
+                },
+            )
 @pytest.mark.asyncio
 async def test_get_call_forwarding_issues_expected_reads_and_returns_destination(
     monkeypatch,

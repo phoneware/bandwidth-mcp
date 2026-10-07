@@ -2,6 +2,7 @@
 
 import time
 import pytest
+from pytest_httpx import HTTPXMock
 from fastmcp import FastMCP
 
 from promotion import (
@@ -10,9 +11,12 @@ from promotion import (
     get_promoted_tool_names,
     record_call_api_invocation,
     promote_tool_on_server,
+    setup_promotions,
+    current_user_var,
+    get_usage_store,
+    UsageRecord,
 )
 from utils import tool_map
-
 
 @pytest.mark.asyncio
 async def test_in_memory_usage_store():
@@ -105,3 +109,161 @@ async def test_promote_tool_on_server():
 
     tools = await tool_map(mcp)
     assert "numbers.GetAccount" in tools
+
+
+@pytest.mark.asyncio
+async def test_promotions_scoped_per_user(monkeypatch):
+    monkeypatch.setenv("MCP_PROMOTE_THRESHOLD", "3")
+    monkeypatch.setenv("MCP_PROMOTE_WINDOW_DAYS", "14")
+    store = InMemoryUsageStore()
+    set_usage_store_for_tests(store)
+
+    mcp = FastMCP("test-server")
+    config = {"BW_ACCESS_TOKEN": "token", "BW_ACCOUNT_ID": "5011369"}
+    setup_promotions(mcp, config)
+
+    # Alice invokes numbers.GetAccount 3 times
+    alice = "alice@phoneware.us"
+    bob = "bob@phoneware.us"
+    for _ in range(3):
+        await record_call_api_invocation(alice, "numbers.GetAccount", mcp_instance=mcp, config=config)
+
+    # Check Alice sees the promoted tool
+    tok_alice = current_user_var.set(alice)
+    try:
+        alice_tools = [t.name for t in await mcp._list_tools()]
+        assert "numbers.GetAccount" in alice_tools
+        alice_tool = await mcp._get_tool("numbers.GetAccount")
+        assert alice_tool is not None
+    finally:
+        current_user_var.reset(tok_alice)
+
+    # Check Bob does NOT see Alice's promoted tool
+    tok_bob = current_user_var.set(bob)
+    try:
+        bob_tools = [t.name for t in await mcp._list_tools()]
+        assert "numbers.GetAccount" not in bob_tools
+        bob_tool = await mcp._get_tool("numbers.GetAccount")
+        assert bob_tool is None
+    finally:
+        current_user_var.reset(tok_bob)
+
+
+@pytest.mark.asyncio
+async def test_firestore_selected_on_cloud_run(monkeypatch):
+    set_usage_store_for_tests(None)
+    monkeypatch.setenv("K_SERVICE", "bandwidth-mcp")
+    monkeypatch.delenv("MCP_PERSISTENCE", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+
+    import sys
+    from unittest.mock import MagicMock
+    mock_firestore = MagicMock()
+    monkeypatch.setitem(sys.modules, "google.cloud.firestore", mock_firestore)
+
+    from promotion import FirestoreUsageStore
+    store = get_usage_store()
+    assert isinstance(store, FirestoreUsageStore)
+    set_usage_store_for_tests(None)
+
+
+@pytest.mark.asyncio
+async def test_promotions_reloaded_after_server_restart(monkeypatch):
+    monkeypatch.setenv("MCP_PROMOTE_THRESHOLD", "3")
+    monkeypatch.setenv("MCP_PROMOTE_WINDOW_DAYS", "14")
+    store = InMemoryUsageStore()
+    set_usage_store_for_tests(store)
+
+    user = "alice@phoneware.us"
+    # Simulate pre-existing 4 calls stored in Firestore / persistent store
+    now = time.time()
+    store._data[user] = {
+        "numbers.GetAccount": UsageRecord(count=4, last_used=now, timestamps=[now] * 4)
+    }
+
+    # Server starts up fresh (no tools dynamically registered yet)
+    mcp = FastMCP("fresh-server")
+    config = {"BW_ACCESS_TOKEN": "token", "BW_ACCOUNT_ID": "5011369"}
+    setup_promotions(mcp, config)
+
+    tok = current_user_var.set(user)
+    try:
+        # tools/list should reload Alice's pre-existing promotion
+        tools = [t.name for t in await mcp._list_tools()]
+        assert "numbers.GetAccount" in tools
+
+        # Direct tool retrieval should also reload it
+        tool = await mcp._get_tool("numbers.GetAccount")
+        assert tool is not None
+    finally:
+        current_user_var.reset(tok)
+
+
+@pytest.mark.asyncio
+async def test_promoted_destructive_tool_forwards_mcp_context(httpx_mock: HTTPXMock, monkeypatch):
+    from fastmcp import Context
+    from unittest.mock import AsyncMock, MagicMock
+
+    mcp = FastMCP("test-destructive")
+    config = {
+        "BW_ACCESS_TOKEN": "mock-token",
+        "BW_ACCOUNT_ID": "5011369",
+        "BW_ACCOUNTS": ["5011369"],
+    }
+    setup_promotions(mcp, config)
+    store = InMemoryUsageStore()
+    set_usage_store_for_tests(store)
+
+    user = "alice@phoneware.us"
+    tok = current_user_var.set(user)
+    now = time.time()
+    store._data[user] = {
+        "numbers.DeleteSite": UsageRecord(count=3, last_used=now, timestamps=[now] * 3)
+    }
+    promote_tool_on_server(mcp, "numbers.DeleteSite", config)
+
+    # Mock Context with elicit returning True
+    mock_ctx = AsyncMock(spec=Context)
+    elicit_result = MagicMock()
+    elicit_result.value = True
+    mock_ctx.elicit = AsyncMock(return_value=elicit_result)
+
+    # When invoked through mcp with Context, ctx reaches the elicitation gate
+    tool = await mcp._get_tool("numbers.DeleteSite")
+    assert tool is not None
+
+    # Call the tool handler directly passing mock_ctx
+    import inspect
+    sig = inspect.signature(tool.fn)
+    assert "ctx" in sig.parameters
+
+    httpx_mock.add_response(
+        method="DELETE",
+        url="https://api.bandwidth.com/api/v2/accounts/5011369/sites/123",
+        status_code=200,
+        text="",
+    )
+    result = await tool.fn(args={"siteId": "123", "confirm": "DELETESITE"}, ctx=mock_ctx)
+    assert result.get("status_code") == 200
+    assert not result.get("elicitation_unsupported")
+    assert mock_ctx.elicit.await_count == 1
+    current_user_var.reset(tok)
+
+@pytest.mark.asyncio
+async def test_usage_window_expires_old_calls(monkeypatch):
+    monkeypatch.setenv("MCP_PROMOTE_THRESHOLD", "3")
+    monkeypatch.setenv("MCP_PROMOTE_WINDOW_DAYS", "14")
+    store = InMemoryUsageStore()
+    set_usage_store_for_tests(store)
+
+    user = "alice@phoneware.us"
+    old_time = time.time() - (20 * 86400)  # 20 days ago (outside 14-day window)
+    store._data[user] = {
+        "numbers.GetAccount": UsageRecord(count=2, last_used=old_time, timestamps=[old_time, old_time])
+    }
+
+    # Today Alice makes 1 call
+    res = await record_call_api_invocation(user, "numbers.GetAccount")
+    # Old calls should have expired, so count is 1 (not 3), and NOT promoted
+    assert res["count"] == 1
+    assert not res["promoted"]

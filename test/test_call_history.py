@@ -259,3 +259,107 @@ async def test_get_voice_call(httpx_mock: HTTPXMock):
     sc = res.structured_content
     assert sc.get("callId") == "call-999"
     assert sc.get("duration") == 85
+
+
+@pytest.mark.asyncio
+async def test_get_call_detail_records_sleeps_asynchronously(httpx_mock: HTTPXMock, monkeypatch):
+    def fail_on_blocking_sleep(seconds):
+        raise AssertionError("Blocking time.sleep called in async polling loop")
+    monkeypatch.setattr("time.sleep", fail_on_blocking_sleep)
+
+    config = {"BW_ACCESS_TOKEN": "mock-token", "BW_ACCOUNT_ID": "5011369", "BW_ACCOUNTS": ["5011369"]}
+    mcp = FastMCP("test")
+    register_call_history_tools(mcp, config)
+
+    report_id = "test-report-uuid-async"
+    httpx_mock.add_response(
+        method="POST",
+        url="https://insights.bandwidth.com/api/v1/reports",
+        status_code=202,
+        json={"data": {"reportId": report_id, "status": "PENDING"}},
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"https://insights.bandwidth.com/api/v1/reports/{report_id}",
+        status_code=200,
+        json={"data": {"reportId": report_id, "status": "PENDING"}},
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"https://insights.bandwidth.com/api/v1/reports/{report_id}",
+        status_code=200,
+        json={"data": {"reportId": report_id, "status": "COMPLETED"}},
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"https://insights.bandwidth.com/api/v1/reports/{report_id}/file",
+        status_code=200,
+        content=make_mock_zip([]),
+        headers={"Content-Type": "application/zip"},
+    )
+
+    res = await mcp.call_tool("getCallDetailRecords", {"start_time": "2026-10-06T00:00:00Z", "end_time": "2026-10-06T01:00:00Z"})
+    assert res.structured_content.get("report_id") == report_id
+    assert res.structured_content.get("total_records") == 0
+
+
+@pytest.mark.asyncio
+async def test_get_call_detail_records_handles_no_results(httpx_mock: HTTPXMock):
+    config = {"BW_ACCESS_TOKEN": "mock-token", "BW_ACCOUNT_ID": "5011369", "BW_ACCOUNTS": ["5011369"]}
+    mcp = FastMCP("test")
+    register_call_history_tools(mcp, config)
+
+    report_id = "test-report-uuid-no-results"
+    httpx_mock.add_response(
+        method="POST",
+        url="https://insights.bandwidth.com/api/v1/reports",
+        status_code=202,
+        json={"data": {"reportId": report_id, "status": "PENDING"}},
+    )
+    httpx_mock.add_response(
+        method="GET",
+        url=f"https://insights.bandwidth.com/api/v1/reports/{report_id}",
+        status_code=200,
+        json={"data": {"reportId": report_id, "status": "NO_RESULTS"}},
+    )
+
+    res = await mcp.call_tool("getCallDetailRecords", {"start_time": "2026-10-06T00:00:00Z", "end_time": "2026-10-06T01:00:00Z"})
+    sc = res.structured_content
+    assert sc.get("status") == "NO_RESULTS"
+    assert sc.get("total_records") == 0
+    assert sc.get("calls") == []
+
+
+@pytest.mark.asyncio
+async def test_search_voice_calls_searches_both_legs_for_phone_number(httpx_mock: HTTPXMock):
+    config = {"BW_ACCESS_TOKEN": "mock-token", "BW_ACCOUNT_ID": "5011369", "BW_ACCOUNTS": ["5011369"]}
+    mcp = FastMCP("test")
+    register_call_history_tools(mcp, config)
+
+    # Leg 1: callingNumber=+14805552222
+    httpx_mock.add_response(
+        url="https://insights.bandwidth.com/api/v1/voice/calls?accountId=5011369&startTime=gte%3A2026-10-06T00%3A00%3A00Z&endTime=lte%3A2026-10-06T01%3A00%3A00Z&limit=25&sort=startTime%3Adesc&callingNumber=%2B14805552222",
+        status_code=200,
+        json={"data": {"totalCount": 1, "calls": [{"callId": "call-leg-1", "startTime": "2026-10-06T00:10:00Z", "callingNumber": "+14805552222", "calledNumber": "+19195551111"}]}},
+    )
+    # Leg 2: calledNumber=+14805552222
+    httpx_mock.add_response(
+        url="https://insights.bandwidth.com/api/v1/voice/calls?accountId=5011369&startTime=gte%3A2026-10-06T00%3A00%3A00Z&endTime=lte%3A2026-10-06T01%3A00%3A00Z&limit=25&sort=startTime%3Adesc&calledNumber=%2B14805552222",
+        status_code=200,
+        json={"data": {"totalCount": 1, "calls": [{"callId": "call-leg-2", "startTime": "2026-10-06T00:20:00Z", "callingNumber": "+19195553333", "calledNumber": "+14805552222"}]}},
+    )
+
+    res = await mcp.call_tool(
+        "searchVoiceCalls",
+        {
+            "start_time": "2026-10-06T00:00:00Z",
+            "end_time": "2026-10-06T01:00:00Z",
+            "phone_number": "+14805552222",
+        },
+    )
+    sc = res.structured_content
+    calls = sc.get("calls", [])
+    # Must return both calls where +14805552222 was calling OR called
+    assert len(calls) == 2
+    call_ids = {c["callId"] for c in calls}
+    assert call_ids == {"call-leg-1", "call-leg-2"}

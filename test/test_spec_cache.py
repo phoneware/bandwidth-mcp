@@ -63,3 +63,14 @@ async def test_fetch_raises_when_no_cache_no_network(tmp_cache, httpx_mock):
     httpx_mock.add_exception(httpx.ConnectError("Network down"), url=url)
     with pytest.raises(RuntimeError, match="Failed to fetch"):
         await fetch_openapi_spec(url)
+
+
+def test_boot_uses_only_vendored_specs_no_network():
+    """Verify that servers.api_server_info points exclusively to local vendored files
+    and booting the server creates no HTTP requests for specs."""
+    from src.servers import api_server_info
+    for name, info in api_server_info.items():
+        spec_url = info["url"]
+        path = Path(spec_url)
+        assert path.exists(), f"Spec for '{name}' must exist locally: {spec_url}"
+        assert not spec_url.startswith("http://") and not spec_url.startswith("https://")

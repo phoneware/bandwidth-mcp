@@ -33,6 +33,7 @@ from tools.numbers import (
     _sanitize_customer_order_id,
     _tn_list,
 )
+from safety import check_confirmation
 
 
 def _nested(payload, *tags: str) -> dict:
@@ -60,6 +61,7 @@ def register_tnoptions_tools(mcp, config: dict) -> None:
         numbers: list[str],
         forward_to: str = "",
         customer_order_id: str = "",
+        confirm: str = "",
         account_id: str = "",
     ) -> dict:
         """Set or clear carrier-level call forwarding on one or more phone numbers.
@@ -83,11 +85,15 @@ def register_tnoptions_tools(mcp, config: dict) -> None:
                 empty or blank to clear call forwarding (sends systemDefault).
             customer_order_id: Optional reference ID for tracking (alphanumeric,
                 dashes, spaces; max 255 characters).
+            confirm: Pass confirm='SETCALLFORWARDING' to authorize the change.
             account_id: Optional account to target (see listAccounts).
         """
+        conf_err = check_confirmation("setCallForwarding", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
+
         if not numbers:
             raise RuntimeError("Pass at least one phone number.")
-
         ft = forward_to.strip() if forward_to else ""
         if not ft or ft.lower() == "systemdefault":
             cf_value = "systemDefault"

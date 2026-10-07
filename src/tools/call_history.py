@@ -12,6 +12,7 @@ Provides:
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import time
@@ -135,8 +136,8 @@ def register_call_history_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
             completed = False
 
             for attempt in range(max_attempts):
-                await httpx.AsyncClient().aclose()  # allow event loop tick
-                time.sleep(poll_interval)
+                if attempt > 0:
+                    await asyncio.sleep(poll_interval)
                 status_resp = await client.get(
                     f"{base_url}/reports/{report_id}", headers=poll_headers
                 )
@@ -146,13 +147,21 @@ def register_call_history_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
                     if status == "COMPLETED":
                         completed = True
                         break
+                    elif status == "NO_RESULTS":
+                        return {
+                            "report_id": report_id,
+                            "status": "NO_RESULTS",
+                            "records_count": 0,
+                            "calls": [],
+                            "records": [],
+                            "total_records": 0,
+                        }
                     elif status in ("FAILED", "ERROR"):
                         return {
                             "error": f"CDR report generation failed: {rep_data.get('errorMessage', 'Unknown error')}",
                             "status": status,
                             "report_id": report_id,
                         }
-
             if not completed:
                 return {
                     "error": f"CDR report timed out after {int(max_attempts * poll_interval)} seconds",
@@ -271,15 +280,14 @@ def register_call_history_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
             "limit": min(limit, 100),
             "sort": sort,
         }
-
-        if calling_number:
-            params["callingNumber"] = calling_number
-        elif phone_number and not called_number:
-            # If a generic phone number is provided, search callingNumber or check
-            params["callingNumber"] = phone_number
-
-        if called_number:
-            params["calledNumber"] = called_number
+        query_both = bool(phone_number and not calling_number and not called_number)
+        if not query_both:
+            if calling_number:
+                params["callingNumber"] = calling_number
+            elif phone_number:
+                params["callingNumber"] = phone_number
+            if called_number:
+                params["calledNumber"] = called_number
 
         if direction:
             params["callDirection"] = direction.lower()
@@ -293,25 +301,61 @@ def register_call_history_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
         }
 
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(base_url, headers=headers, params=params)
-            if resp.status_code == 403:
-                return {
-                    "error": (
-                        "The Bandwidth API credential lacks the Insights voice role (voice_insights). "
-                        "Enable Voice Insights in the Bandwidth App."
-                    ),
-                    "status_code": 403,
-                }
-            if resp.status_code != 200:
-                return {
-                    "error": f"Failed to search voice calls: {resp.text}",
-                    "status_code": resp.status_code,
-                }
+            if query_both:
+                params_calling = dict(params, callingNumber=phone_number)
+                params_called = dict(params, calledNumber=phone_number)
+                resp1, resp2 = await asyncio.gather(
+                    client.get(base_url, headers=headers, params=params_calling),
+                    client.get(base_url, headers=headers, params=params_called),
+                )
+                for r in (resp1, resp2):
+                    if r.status_code == 403:
+                        return {
+                            "error": (
+                                "The Bandwidth API credential lacks the Insights voice role (voice_insights). "
+                                "Enable Voice Insights in the Bandwidth App."
+                            ),
+                            "status_code": 403,
+                        }
+                    if r.status_code != 200:
+                        return {
+                            "error": f"Failed to search voice calls: {r.text}",
+                            "status_code": r.status_code,
+                        }
+                raw1 = resp1.json().get("data", {}).get("calls", [])
+                raw2 = resp2.json().get("data", {}).get("calls", [])
+                seen_cids = set()
+                merged_calls = []
+                for c in raw1 + raw2:
+                    cid = c.get("callId")
+                    if cid and cid in seen_cids:
+                        continue
+                    if cid:
+                        seen_cids.add(cid)
+                    merged_calls.append(c)
 
-            data = resp.json().get("data", {})
-            total_count = data.get("totalCount", 0)
-            raw_calls = data.get("calls", [])
-
+                reverse = not sort.endswith(":asc")
+                merged_calls.sort(key=lambda c: c.get("startTime") or "", reverse=reverse)
+                raw_calls = merged_calls[:min(limit, 100)]
+                total_count = len(merged_calls)
+            else:
+                resp = await client.get(base_url, headers=headers, params=params)
+                if resp.status_code == 403:
+                    return {
+                        "error": (
+                            "The Bandwidth API credential lacks the Insights voice role (voice_insights). "
+                            "Enable Voice Insights in the Bandwidth App."
+                        ),
+                        "status_code": 403,
+                    }
+                if resp.status_code != 200:
+                    return {
+                        "error": f"Failed to search voice calls: {resp.text}",
+                        "status_code": resp.status_code,
+                    }
+                data = resp.json().get("data", {})
+                total_count = data.get("totalCount", 0)
+                raw_calls = data.get("calls", [])
             formatted_calls = []
             for c in raw_calls:
                 formatted_calls.append(

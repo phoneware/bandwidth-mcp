@@ -20,11 +20,12 @@ from functools import lru_cache
 from xml.etree.ElementTree import Element, SubElement, fromstring, tostring
 from zoneinfo import ZoneInfo
 import httpx
+from fastmcp import Context
 from mcp.types import ToolAnnotations
 
 from tools.discovery import _dashboard_get, _resolve_account
 from urls import dashboard_api_base
-
+from safety import check_confirmation, elicit_destructive_confirmation
 _READ = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
 _WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
 _DESTRUCTIVE = ToolAnnotations(readOnlyHint=False, destructiveHint=True, openWorldHint=False)
@@ -712,19 +713,23 @@ def register_numbers_tools(mcp, config: dict) -> None:
         site_id: str,
         peer_id: str = "",
         order_name: str = "",
+        confirm: str = "",
         account_id: str = "",
     ) -> dict:
         """ORDER (purchase) specific phone numbers onto the account. This is a
-        billable carrier action. Find candidates with searchAvailableNumbers
-        first, and confirm the exact numbers with the user before ordering.
+        billable carrier action. Requires confirm='ORDERPHONENUMBERS'.
 
         Args:
             numbers: The exact numbers to order (from searchAvailableNumbers).
             site_id: Site (sub-account) to place them on (see listSites).
             peer_id: Optional SIP peer/location (see listSipPeers).
             order_name: Optional label for the order.
+            confirm: Pass confirm='ORDERPHONENUMBERS' to authorize the purchase.
             account_id: Optional account (see listAccounts).
         """
+        conf_err = check_confirmation("orderPhoneNumbers", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
         body = Element("Order")
         if order_name:
             SubElement(body, "Name").text = order_name
@@ -737,18 +742,29 @@ def register_numbers_tools(mcp, config: dict) -> None:
 
     @mcp.tool(name="disconnectPhoneNumbers", annotations=_DESTRUCTIVE)
     async def disconnect_phone_numbers(
-        numbers: list[str], order_name: str, account_id: str = ""
+        numbers: list[str],
+        order_name: str,
+        confirm: str = "",
+        account_id: str = "",
+        ctx: Context = None,
     ) -> dict:
         """DISCONNECT phone numbers: removes them from service. Destructive
-        and hard to undo (disconnected numbers age out of the account).
-        Confirm the exact numbers with the user before calling.
+        and hard to undo. Requires confirm='DISCONNECTPHONENUMBERS' and MCP elicitation.
 
         Args:
             numbers: The exact numbers to disconnect.
-            order_name: A label for the disconnect order (required, shows in
-                the Dashboard audit trail).
+            order_name: A label for the disconnect order.
+            confirm: Pass confirm='DISCONNECTPHONENUMBERS' to authorize disconnection.
             account_id: Optional account (see listAccounts).
         """
+        conf_err = check_confirmation("disconnectPhoneNumbers", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
+        elicit_err = await elicit_destructive_confirmation(
+            "disconnectPhoneNumbers", f"numbers={numbers}, order_name={order_name}", ctx
+        )
+        if elicit_err is not None:
+            raise RuntimeError(elicit_err["error"])
         body = Element("DisconnectTelephoneNumberOrder")
         SubElement(body, "Name").text = order_name
         dt = SubElement(body, "DisconnectTelephoneNumberOrderType")
@@ -781,6 +797,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         customer_order_id: str = "",
         loa_file_base64: str = "",
         loa_filename: str = "",
+        confirm: str = "",
         account_id: str = "",
     ) -> dict:
         """CREATE a port-in (LNP) order to bring numbers TO Bandwidth. A
@@ -859,8 +876,13 @@ def register_numbers_tools(mcp, config: dict) -> None:
             loa_file_base64: Optional base64-encoded LOA document (PDF, TIFF,
                 PNG, JPEG) to attach in the same call.
             loa_filename: Optional filename for the LOA (e.g. "acme-loa.pdf").
+            confirm: Pass confirm='CREATEPORTINORDER' to authorize the port-in order.
             account_id: Optional account (see listAccounts).
         """
+        conf_err = check_confirmation("createPortInOrder", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
+
         problems = _port_in_problems(
             numbers,
             billing_telephone_number,
@@ -1020,6 +1042,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         filename: str,
         document_type: str = "LOA",
         content_type: str = "",
+        confirm: str = "",
         account_id: str = "",
     ) -> dict:
         """UPLOAD the signed LOA (or a supporting document) onto a port-in
@@ -1039,6 +1062,9 @@ def register_numbers_tools(mcp, config: dict) -> None:
             content_type: Optional MIME type override.
             account_id: Optional account (see listAccounts).
         """
+        conf_err = check_confirmation("uploadPortInLoa", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
         return await _upload_port_in_document(
             config,
             order_id,
@@ -1056,6 +1082,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         requested_foc_time: str = "",
         site_id: str = "",
         loa_authorizing_person: str = "",
+        confirm: str = "",
         account_id: str = "",
     ) -> dict:
         """SUPP (modify) an existing port-in order: change the FOC date or time,
@@ -1076,6 +1103,9 @@ def register_numbers_tools(mcp, config: dict) -> None:
             loa_authorizing_person: Corrected LOA signer name.
             account_id: Optional account (see listAccounts).
         """
+        conf_err = check_confirmation("supplementPortInOrder", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
         if requested_foc_time.strip():
             if not requested_foc_date.strip():
                 raise ValueError(
@@ -1123,14 +1153,28 @@ def register_numbers_tools(mcp, config: dict) -> None:
         )
 
     @mcp.tool(name="cancelPortInOrder", annotations=_DESTRUCTIVE)
-    async def cancel_port_in_order(order_id: str, account_id: str = "") -> dict:
+    async def cancel_port_in_order(
+        order_id: str,
+        confirm: str = "",
+        account_id: str = "",
+        ctx: Context = None,
+    ) -> dict:
         """CANCEL a port-in order (only possible before FOC). Destructive:
-        the port stops and the order closes. Confirm with the user first.
+        the port stops and the order closes. Requires confirm='CANCELPORTINORDER' and MCP elicitation.
 
         Args:
             order_id: The LNP order id (from listPortInOrders).
+            confirm: Pass confirm='CANCELPORTINORDER' to authorize cancellation.
             account_id: Optional account (see listAccounts).
         """
+        conf_err = check_confirmation("cancelPortInOrder", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
+        elicit_err = await elicit_destructive_confirmation(
+            "cancelPortInOrder", f"order_id={order_id}", ctx
+        )
+        if elicit_err is not None:
+            raise RuntimeError(elicit_err["error"])
         return await _dashboard_send(
             config, "DELETE", f"portins/{order_id}", None, account_id
         )

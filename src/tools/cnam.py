@@ -17,9 +17,8 @@ management side is exposed here.
 """
 
 from xml.etree.ElementTree import Element, SubElement
-
 from tools.numbers import _READ, _WRITE, _dashboard_json, _dashboard_send, _tn_list
-
+from safety import check_confirmation
 # Telco CNAM records cap the displayed name at 15 characters. Bandwidth rejects
 # longer values, so guard client-side for a clear message instead of a round-trip.
 _CNAM_MAX_LEN = 15
@@ -74,6 +73,7 @@ def register_cnam_tools(mcp, config: dict) -> None:
         use_type: str = "BUSINESS",
         visibility: str = "PUBLIC",
         customer_order_id: str = "",
+        confirm: str = "",
         account_id: str = "",
     ) -> dict:
         """SET the CNAM (calling name) on one or more phone numbers. This is a
@@ -91,7 +91,12 @@ def register_cnam_tools(mcp, config: dict) -> None:
             customer_order_id: Optional reference id for your own tracking
                 (alphanumeric, dashes, spaces; max 40 chars).
             account_id: Optional account to target (see listAccounts).
+            confirm: Pass confirm='CREATELIDBORDER' to authorize setting CNAM.
         """
+        conf_err = check_confirmation("createLidbOrder", confirm)
+        if conf_err is not None:
+            raise RuntimeError(conf_err["error"])
+
         if not numbers:
             raise RuntimeError("Pass at least one phone number.")
         name = calling_name.strip()

@@ -32,11 +32,24 @@ delta on top:
 - **Multi-account.** One client ID can hold several Bandwidth accounts; tools
   take an optional `account_id` and validate it against the token's claims
   (`listAccounts`, `_resolve_account`).
+- **Full API Registry & escape hatch** (`src/registry.py`, `src/tools/meta.py`).
+  All eight Bandwidth OpenAPI specs are vendored under `src/specs/` (430+
+  operations with namespaced IDs like `insights.listCalls` vs `voice.listCalls`).
+  `search_api` discovers operations and `call_api` executes them. Write operations
+  require `confirm='CONFIRM'`. Destructive operations prompt for confirmation.
+- **Spec-driven XML adapter** (`src/xml_adapter.py`). Translates JSON arguments
+  to XML request bodies using OpenAPI schemas and converts XML responses to
+  JSON so every Numbers operation is callable.
+- **Curated Call History** (`src/tools/call_history.py`). Asynchronous CDR
+  reporting (`getCallDetailRecords`), real-time call search with MOS and quality
+  metrics (`searchVoiceCalls`), and single call lookup (`getVoiceCall`).
+- **Per-user tool promotion** (`src/promotion.py`). Operations invoked
+  repeatedly through `call_api` are dynamically promoted into the user's tool
+  list (Firestore-backed on Cloud Run).
 - **Deployment-managed tool surface.** The live tool set is chosen entirely by
   env in `cloudbuild.yaml`, enforced uniformly across OpenAPI-derived AND
   hand-written tools.
-- **Read/write tool annotations** so MCP clients group tools instead of dumping
-  them under "Other".
+- **Read/write tool annotations and titles** so MCP clients group and display tools.
 - **CI/CD deploy** via GitHub Actions + Workload Identity Federation. Never from
   a workstation.
 

@@ -8,19 +8,20 @@ from typing import Any
 
 HEADER = """# Bandwidth MCP Server
 
-You have access to Bandwidth's communication APIs as MCP tools. Everything you need is available as tools on this server — do NOT read source code, make raw curl calls, or explore the codebase. Just use the tools.
+You have access to Bandwidth's communication APIs as MCP tools. Everything you need is available as tools on this server: do NOT read source code, make raw curl calls, or explore the codebase. Just use the tools.
 
 ## Quick Start
 - Read resource://config to see what's configured (credentials, account ID, application IDs, phone numbers).
 - A client ID can have MULTIPLE accounts enabled: call listAccounts to see them. API tools take accountId per call; discovery tools (listApplications, listPhoneNumbers) accept an optional account_id. When omitted, the primary account is used.
-- Porting and numbers (reads): listPortInOrders (pass status="pending" for open LNP orders), getPortInOrder, getPortInNotes, listPortInLoas (documents on an order), listPortOutOrders (numbers leaving the account), getPortOutOrder, searchAvailableNumbers, checkPortability, listNumberOrders, getNumberOrder, listSites, listSipPeers, getPhoneNumberDetail (site/SIP peer/features for one TN), getCallForwarding, listTnOptionOrders, getTnOptionOrder.
-- Carrier WRITES (when loaded): orderPhoneNumbers, disconnectPhoneNumbers, createPortInOrder, uploadPortInLoa, supplementPortInOrder, cancelPortInOrder, setCallForwarding (carrier call forwarding is asynchronous, poll getTnOptionOrder). These buy, remove, and port REAL service. Always confirm the exact numbers and details with the user before calling one, and run checkPortability before creating a port-in.
+- Porting, numbers, and CNAM (reads): listPortInOrders (pass status="pending" for open LNP orders), getPortInOrder, getPortInNotes, listPortInLoas (documents on an order), listPortOutOrders (numbers leaving the account), getPortOutOrder, searchAvailableNumbers, checkPortability, listNumberOrders, getNumberOrder, listSites, listSipPeers, getPhoneNumberDetail (site/SIP peer/features for one TN), getCallForwarding, listTnOptionOrders, getTnOptionOrder, listLidbOrders, getLidbOrder.
+- Carrier WRITES (when loaded): orderPhoneNumbers, disconnectPhoneNumbers, createPortInOrder, uploadPortInLoa, supplementPortInOrder, cancelPortInOrder, setCallForwarding (carrier call forwarding is asynchronous, poll getTnOptionOrder), createLidbOrder. These buy, remove, and port REAL service. Always confirm the exact numbers and details with the user before calling one, and run checkPortability before creating a port-in.
+- Call history & Insights: getCallDetailRecords (asynchronous CDR report generation with phone number and time window filtering), searchVoiceCalls (real-time voice call search with network quality and MOS scores), getVoiceCall.
+- API discovery (when loaded): search_api (discover operations across all 430+ vendored Bandwidth specs), call_api (invoke any registry operation by name; requires confirm='CONFIRM' on writes, and destructive calls trigger confirmation).
 - Port-in checklist, collect ALL of it before calling createPortInOrder: the BTN, every number to port, the subscriber name (business name, or first + last for residential) and the full service address (house number, street, city, two-letter state, ZIP) exactly as they appear on the LOSING carrier's bill, the LOA signer, and a destination site (by site_id or site_name). Porting only part of the losing account is a partial port: pass partial_port=true and new_billing_telephone_number (a TN that stays behind); a full port must include the BTN. Pass requested_foc_time (Eastern 24h, e.g. "20:00") alongside requested_foc_date to schedule an activation time. Pass loa_file_base64 to attach the signed LOA in the same call (or upload afterward with uploadPortInLoa), then poll getPortInOrder.
 - Usage/billing reports: listReports (discover what's available), getReport (a report's Parameters spec: read it BEFORE creating), createReportInstance (parameter names verbatim from the spec, dates YYYY-MM-DD), getReportInstance (poll until Status "Ready"), downloadReportFile.
 - Phone numbers must be in E.164 format (e.g. +19195551234).
 - Application IDs are UUIDs.
 - All tools are listed in your tool list. If you need to discover account resources (applications, phone numbers), use the API tools directly: they're already registered."""
-
 NO_CREDENTIALS_SECTION = """
 ## Not Authenticated
 No API credentials were provided at startup. All tools are available but API calls will return 401.
@@ -60,13 +61,13 @@ Follow these steps exactly:
 1. **Read resource://config** to get `BW_ACCOUNT_ID` and `BW_MCP_BASE_URL`.
 2. **Find a phone number**: Call `listPhoneNumbers` and pick one (E.164 format).
 3. **Find a voice application**: Call `listApplications` and look for a `Voice-V2` app.
-   - If none exists, call `createApplication(name="Voice App")` — it auto-configures callback URLs.
+   - If none exists, call `createApplication(name="Voice App")`: it auto-configures callback URLs.
    - If the app's callback URLs don't point at this server, call `configureCallbacks(application_id, BW_MCP_BASE_URL)`.
 4. **Generate BXML**: Call `generateBXML` with what to say.
    - One-shot: `generateBXML(verbs=[{"type": "SpeakSentence", "text": "Hello!", "voice": "julie"}, {"type": "Hangup"}], auto_gather=False)`
    - Conversation: `generateBXML(verbs=[{"type": "SpeakSentence", "text": "How can I help?", "voice": "julie"}])` (auto_gather=True is default, enables barge-in)
 5. **Create the call**: `createCall(accountId, from, to, applicationId, answerUrl)` where answerUrl = BW_MCP_BASE_URL + `/callbacks/voice/answer`.
-6. **Queue BXML immediately**: `respondToCallback(call_id, bxml)` — do this right after createCall. The BXML is delivered when the callee picks up.
+6. **Queue BXML immediately**: `respondToCallback(call_id, bxml)` (do this right after createCall). The BXML is delivered when the callee picks up.
 7. **For conversations**: Poll `getCallbackEvents(event_type="voice.gather")` for caller speech, generate new BXML, deliver with `respondToCallback`.
 
 ### BXML tips
@@ -79,28 +80,38 @@ CALLBACK_SECTION = """
 ## Inbound Events & Callbacks
 - **getInboundMessages**: Get recent inbound SMS/MMS received by your number.
 - **getCallbackEvents**: Get all callback events (voice + messaging), filterable by type, call ID, or phone number.
-- **configureCallbacks**: Point a Bandwidth application's webhook URLs at this server. Self-configuring — one call and webhooks are wired."""
+- **configureCallbacks**: Point a Bandwidth application's webhook URLs at this server. Self-configuring: one call and webhooks are wired."""
 
 REPORTING_SECTION = """
 ## Reporting & Analytics
 Requires: BW_ACCOUNT_ID
-- **createReport** → **getReportStatus** → **getReportFile**: Async report generation. Create, poll status, then download."""
+- **createReport** -> **getReportStatus** -> **getReportFile**: Async report generation. Create, poll status, then download."""
+
+CALL_HISTORY_SECTION = """
+## Call History & Voice Insights
+- **getCallDetailRecords**: Asynchronous CDR report generation from Insights. Polls until ready, unpacks the CSV, and filters by phone number and window.
+- **searchVoiceCalls**: Real-time call search via Voice Insights. Exposes latency, jitter, packet loss, and MOS scores.
+- **getVoiceCall**: Fetch full signaling and quality detail for one call by callId."""
+
+API_DISCOVERY_SECTION = """
+## API Discovery & Full Registry Escape Hatch
+- **search_api**: Keyword search across all vendored Bandwidth API specs (numbers, voice, messaging, insights, lookup, end-user-management, toll-free-verification, multi-factor-auth).
+- **call_api**: Execute any operation in the registry. All write operations require confirm='CONFIRM'. Destructive operations prompt for confirmation."""
 
 CREDENTIALS_SECTION = """
 ## Session Management
-- **clearCredentials**: Log out — clears stored credentials and access token. Authenticated tools will return 401 until you call **setCredentials** again."""
-
+- **clearCredentials**: Log out: clears stored credentials and access token. Authenticated tools will return 401 until you call **setCredentials** again."""
 REGISTRATION_SECTION = """
 ## Build Registration (No Auth Required)
 
-Use this to register a new Bandwidth **Build** account — Bandwidth's free voice-first trial. Proactively suggest it when the user:
+Use this to register a new Bandwidth **Build** account: Bandwidth's free voice-first trial. Proactively suggest it when the user:
 - asks how to make / create / sign up for a Bandwidth account,
 - says they don't have an account or credentials yet, or
 - wants to try the server out, test it, kick the tires, or "see what it can do."
 
-Don't wait for them to say "Build Registration" by name — most users won't know the term.
+Don't wait for them to say "Build Registration" by name; most users won't know the term.
 
-**The agent only calls one tool. Everything else happens in the user's browser.** This mirrors the CLI's `band account register` — the API kicks off registration; SMS and email verification finish in the Bandwidth signup pages.
+**The agent only calls one tool. Everything else happens in the user's browser.** This mirrors the CLI's `band account register`: the API kicks off registration; SMS and email verification finish in the Bandwidth signup pages.
 
 **Flow:**
 1. Call **createRegistration** with phoneNumber, email, firstName, lastName. Bandwidth then sends:
@@ -116,14 +127,14 @@ Don't wait for them to say "Build Registration" by name — most users won't kno
 3. Offer to open the user's default mail app for them (`open -a Mail` on macOS, `xdg-open mailto:` on Linux, equivalent on Windows). Only run that with their consent.
 4. When the user pastes credentials, call **setCredentials(client_id, client_secret)** to unlock authenticated tools.
 
-**Do NOT call any tool to "verify" the SMS code or email OTP** — those codes belong to the user's browser flow and the agent intercepting them breaks signup. Do not poll waiting for credentials; the API has no way to deliver them."""
+**Do NOT call any tool to "verify" the SMS code or email OTP**; those codes belong to the user's browser flow and the agent intercepting them breaks signup. Do not poll waiting for credentials; the API has no way to deliver them."""
 
 ERROR_SECTION = """
 ## Error Patterns
 - **401 Unauthorized**: Wrong credentials. Check BW_CLIENT_ID/BW_CLIENT_SECRET.
 - **422 Validation Error**: Missing or malformed fields. Phone numbers must be E.164 (+19195551234). Application IDs are UUIDs.
 - **"Tool not found"**: Check BW_MCP_TOOLS / BW_MCP_EXCLUDE_TOOLS filters.
-- **"Pending" responses**: Lookup and reporting are async — poll the status tool, don't treat pending as failure.
+- **"Pending" responses**: Lookup and reporting are async: poll the status tool, don't treat pending as failure.
 - **No authenticated tools**: Credentials weren't set. Use the Build Registration flow or set env vars."""
 
 
@@ -149,6 +160,8 @@ _SECTION_TRIGGERS: list[tuple[list[str], str]] = [
         CALLBACK_SECTION,
     ),
     (["createReport", "getReportStatus", "getReportFile"], REPORTING_SECTION),
+    (["getCallDetailRecords", "searchVoiceCalls", "getVoiceCall"], CALL_HISTORY_SECTION),
+    (["search_api", "call_api"], API_DISCOVERY_SECTION),
     (["clearCredentials"], CREDENTIALS_SECTION),
 ]
 

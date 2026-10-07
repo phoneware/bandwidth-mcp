@@ -24,6 +24,7 @@ async def server_client(mcp):
 
 def create_mock(httpx_mock: HTTPXMock, spec_name: str):
     """Helper function to create a mock response for HTTPX."""
+    httpx_mock._options.assert_all_responses_were_requested = False
     with open(f"test/fixtures/{spec_name}.yml", "r", encoding="utf-8") as f:
         response_text = f.read()
     httpx_mock.add_response(

@@ -32,23 +32,26 @@ Everything below is Phoneware's delta on top of upstream. This is "the changes".
 | Hosting | self-run stdio package | hosted OAuth 2.1 gateway on Cloud Run (`serve.py`) |
 | Auth | env creds or stdio `setCredentials` | **Google sign-in** in front of the tools; the Bandwidth creds live in Secret Manager on the service and are never sent to a client |
 | Numbers / porting | none (Numbers API is XML; `from_openapi` can't drive it) | hand-written XML tools: port-in/out, inventory search, orders, sites, SIP peers, per-number detail, portability, carrier writes (`src/tools/numbers.py`) |
-| Billing | none | async usage/billing reports engine (`src/tools/reports.py`) |
+| Spec-driven XML adapter | none | generic schema-driven XML request/response adapter (`src/xml_adapter.py`) so every Numbers operation is callable |
+| Billing & Call History | none | async usage/billing reports (`src/tools/reports.py`), async CDR report generation (`getCallDetailRecords`), real-time call search with MOS and quality metrics (`searchVoiceCalls`, `getVoiceCall`) |
+| API Registry & Discovery | upstream loads only OpenAPI subset | full vendored registry across 8 specs (430+ operations) with namespaced IDs (`insights.listCalls` vs `voice.listCalls`), `search_api`, and `call_api` |
+| Safety Gates | none | all writes require confirm='CONFIRM'; destructive writes trigger in-band MCP elicitation |
+| Tool Promotion | none | operations called repeatedly via `call_api` are promoted into the user's tool list (Firestore-backed on Cloud Run) |
 | Accounts | first account only | multi-account: one client ID, `account_id` per tool, validated against the token claims |
-| Client UX | tools ungrouped ("Other") | read/write `ToolAnnotations` so clients group tools |
+| Client UX | tools ungrouped ("Other") | read/write `ToolAnnotations` and `title` so clients group tools |
 | Protocol | whatever the pinned SDK spoke | MCP **2026-07-28** (stateless: no handshake, no session id, `server/discover`) plus the handshake era on the same endpoint, on fastmcp 4.0.0b1 + MCP SDK 2.0.0 |
 | Deploy | n/a | GitHub Actions + Workload Identity Federation, pytest-gated Cloud Build; never from a workstation |
-
 ## The deployed surface
 
 The live tool set is chosen entirely by environment in
 [`cloudbuild.yaml`](cloudbuild.yaml), not in code:
 
-- `BW_MCP_PROFILE=numbers,numbers-write,billing`: the carrier/reseller surface.
+- `BW_MCP_PROFILE=numbers,numbers-write,billing,call-history`: the carrier/reseller and call history surface.
 - Excludes `clearCredentials, createRegistration, uploadMedia, deleteMedia, createApplication`.
 - `BW_ACCOUNT_ID=5011369` pins the primary account (the OAuth token lists another
   account first).
-- Voice, messaging, and lookup profiles are deliberately dropped (403 /
-  "account not authorized").
+- Voice, messaging, and lookup profiles are deliberately dropped from default list,
+  but are reachable through `search_api` and `call_api`.
 
 The profiles themselves live in [`src/profiles.py`](src/profiles.py):
 
@@ -56,12 +59,13 @@ The profiles themselves live in [`src/profiles.py`](src/profiles.py):
 |---|---|
 | `numbers` | port-in/out orders + notes + documents (`listPortInLoas`), `searchAvailableNumbers`, number orders, sites, SIP peers, `getPhoneNumberDetail`, `checkPortability`, CNAM reads (`listLidbOrders`, `getLidbOrder`), call forwarding reads (`getCallForwarding`, `listTnOptionOrders`, `getTnOptionOrder`), plus `listPhoneNumbers` / `listApplications` |
 | `numbers-write` | `orderPhoneNumbers`, `disconnectPhoneNumbers`, `createPortInOrder`, `uploadPortInLoa`, `supplementPortInOrder`, `cancelPortInOrder`, `createLidbOrder` (set CNAM), `setCallForwarding`: real, billable carrier actions |
-| `billing` | `listReports`, `getReport`, report instances (create/get/list), `downloadReportFile` |
-| `voice` / `messaging` / `lookup` / `recordings` / `onboarding` | upstream surfaces, available locally, off in the deployment |
+| `billing` | `listReports`, `getReport`, report instances (create/get/list), `downloadReportFile`, `getCallDetailRecords`, `searchVoiceCalls`, `getVoiceCall` |
+| `call-history` | `getCallDetailRecords` (asynchronous CDR report generation), `searchVoiceCalls` (real-time voice call search with network quality and MOS scores), `getVoiceCall` |
+| `voice` / `messaging` / `lookup` / `recordings` / `onboarding` | upstream surfaces, available locally or through `call_api` |
 
-`listAccounts` is always available. See
-[`src/specs/AGENTS.md`](src/specs/AGENTS.md) for argument-level tool docs (note
-its framing predates the numbers surface).
+`listAccounts`, `search_api`, and `call_api` are always available across all profiles.
+Detailed coverage report across all 442 operations is published in [`docs/api-coverage.html`](docs/api-coverage.html).
+See [`src/specs/AGENTS.md`](src/specs/AGENTS.md) for argument-level tool docs.
 
 ## Connecting
 

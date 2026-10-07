@@ -22,24 +22,21 @@ _SPECS_DIR = Path(specs.__file__).parent
 # All API specs. Tools are cherrypicked by profiles, so loading all specs
 # is fine — only the operationIds in the active profile get registered.
 api_server_info: Dict[str, Dict[str, Any]] = {
-    "messaging": {"url": "https://dev.bandwidth.com/spec/messaging.yml"},
+    "messaging": {"url": str(_SPECS_DIR / "messaging.yml")},
     "phone-number-lookup": {
-        "url": "https://dev.bandwidth.com/spec/phone-number-lookup-v2.yml"
+        "url": str(_SPECS_DIR / "phone-number-lookup-v2.yml")
     },
-    "voice": {"url": "https://dev.bandwidth.com/spec/voice.yml"},
+    "voice": {"url": str(_SPECS_DIR / "voice.yml")},
     "insights": {
-        "url": "https://dev.bandwidth.com/spec/insights.yml",
-        # listCalls/listCall collide with voice spec — exclude from insights
+        "url": str(_SPECS_DIR / "insights.yml"),
+        # listCalls/listCall collide with voice spec: exclude from insights
         "exclude_tools": ["listCalls", "listCall"],
     },
     "end-user-management": {
-        "url": "https://dev.bandwidth.com/spec/end-user-management.yml"
+        "url": str(_SPECS_DIR / "end-user-management.yml")
     },
-    # Numbers API is XML-based — from_openapi sends JSON which the API rejects.
-    # Disabled until we have a proper XML adapter or hand-written tools.
-    # "numbers": {"url": "https://dev.bandwidth.com/spec/numbers.yml"},
     "toll-free-verification": {
-        "url": "https://dev.bandwidth.com/spec/toll-free-verification.yml"
+        "url": str(_SPECS_DIR / "toll-free-verification.yml")
     },
     "build-registration": {
         "url": str(_SPECS_DIR / "build.yml"),

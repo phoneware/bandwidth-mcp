@@ -276,8 +276,14 @@ async def fetch_openapi_spec(url: str) -> Dict[str, Any]:
         if cached:
             warnings.warn(f"Using cached spec for {url}: {e}")
             return cached
+        spec_filename = Path(url).name
+        import specs
+        local_vendored = Path(specs.__file__).parent / spec_filename
+        if local_vendored.exists():
+            warnings.warn(f"Using vendored spec for {url}: {e}")
+            spec_object = yaml.safe_load(local_vendored.read_text(encoding="utf-8"))
+            return _clean_openapi_spec(spec_object)
         raise RuntimeError(f"Failed to fetch OpenAPI spec from {url}: {e}") from e
-
 
 _SENSITIVE_KEYS = {
     "BW_CLIENT_SECRET",

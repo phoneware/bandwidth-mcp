@@ -96,7 +96,7 @@ steps:
       # voice/messaging callbacks). BW_MCP_PROFILE trims the tool surface.
       # --set-env-vars REPLACES the service env wholesale: this list is the
       # complete pipeline-managed env. BW_MCP_BASE_URL is the OAuth issuer and
-      # callback base — it must ride here or a deploy wipes it.
+      # callback base: it must ride here or a deploy wipes it.
       # Tool surface is deployment-managed here: profiles pick the groups,
       # BW_MCP_EXCLUDE_TOOLS prunes individual tools Phoneware doesn't use
       # (enforced uniformly for OpenAPI-derived AND hand-written tools).
@@ -119,7 +119,7 @@ steps:
       # would hand the carrier account to any Google account on earth. Add named
       # outside contractors with BW_OAUTH_ALLOWED_EMAILS rather than widening it.
       # (The Google client id rides in --set-secrets above, with its secret.)
-      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_ACCOUNT_ID=5011369@BW_MCP_PROFILE=numbers,numbers-write,billing@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud@BW_OAUTH_ALLOWED_DOMAINS=phoneware.us
+      - --set-env-vars=^@^BW_MCP_TRANSPORT=streamable-http@BW_MCP_HOST=0.0.0.0@BW_MCP_PORT=8080@BW_ACCOUNT_ID=5011369@BW_MCP_PROFILE=numbers,numbers-write,billing,call-history@BW_MCP_EXCLUDE_TOOLS=clearCredentials,createRegistration,uploadMedia,deleteMedia,createApplication@BW_MCP_BASE_URL=https://mcp.bandwidth.phoneware.cloud@BW_OAUTH_ALLOWED_DOMAINS=phoneware.us@MCP_PERSISTENCE=firestore@GOOGLE_CLOUD_PROJECT=phoneware-edge
 
 substitutions:
   _REGION: us-central1

@@ -81,7 +81,7 @@ PROFILES: dict[str, list[str]] = {
         # Call forwarding write: set or clear carrier call forwarding on TN(s).
         "setCallForwarding",
     ],
-    # Usage/billing reports via the async /reports engine.
+    # Usage/billing reports via the async /reports engine, plus Insights call history.
     "billing": [
         "listReports",
         "getReport",
@@ -89,6 +89,15 @@ PROFILES: dict[str, list[str]] = {
         "createReportInstance",
         "getReportInstance",
         "downloadReportFile",
+        "getCallDetailRecords",
+        "searchVoiceCalls",
+        "getVoiceCall",
+    ],
+    # Call history: Insights async CDR reporting and real-time voice call search.
+    "call-history": [
+        "getCallDetailRecords",
+        "searchVoiceCalls",
+        "getVoiceCall",
     ],
     # "applications": [...],
     # "locations": [...],
@@ -117,7 +126,13 @@ PROFILES: dict[str, list[str]] = {
 }
 
 # Always included regardless of profile
-_ALWAYS_TOOLS = ["setCredentials", "clearCredentials", "listAccounts"]
+_ALWAYS_TOOLS = [
+    "setCredentials",
+    "clearCredentials",
+    "listAccounts",
+    "search_api",
+    "call_api",
+]
 
 # Default: voice + messaging + lookup
 DEFAULT_TOOLS = list(dict.fromkeys(

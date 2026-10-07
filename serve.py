@@ -948,6 +948,13 @@ async def gated(scope, receive, send):
                 }
             )
             return
+        from promotion import current_user_var
+        token_ctx = current_user_var.set(subject)
+        try:
+            await _inner(scope, receive, send)
+        finally:
+            current_user_var.reset(token_ctx)
+        return
     await _inner(scope, receive, send)
 
 

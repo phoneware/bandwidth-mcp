@@ -1,0 +1,3062 @@
+openapi: 3.1.0
+info:
+  title: Toll-Free Verification
+  version: 1.0.0
+  contact:
+    name: Bandwidth
+    url: https://support.bandwidth.com
+    email: support@bandwidth.com
+  termsOfService: https://www.bandwidth.com/legal/terms-of-use-bandwidthcom-web-sites/
+  description: |-
+    The API Specification for Toll-Free Verification Platform
+
+    ## Base URL
+
+    `https://api.bandwidth.com/api/v2`
+security:
+  - Basic: []
+  - OAuth2: []
+servers:
+  - url: https://api.bandwidth.com/api/v2
+    description: Production
+tags:
+  - name: Toll-Free Verification
+paths:
+  /accounts/{accountId}/tollFreeVerification:
+    post:
+      tags:
+        - Toll-Free Verification
+      summary: Request Toll-Free Verification
+      description: Submit a request for verification of a toll-free phone number.
+      operationId: requestTollFreeVerification
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      requestBody:
+        $ref: '#/components/requestBodies/requestTollFreeVerificationRequest'
+      responses:
+        '202':
+          description: Accepted
+        '400':
+          $ref: '#/components/responses/tfvPostBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      callbacks:
+        tfVerificationStatus:
+          $ref: '#/components/callbacks/tfVerificationStatus'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl
+            'https://api.bandwidth.com/api/v2/accounts/9900000/tollFreeVerification'
+            \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              --data-raw '{
+                "businessAddress": {
+                  "name": "Bandwidth Inc.",
+                  "addr1": "2230 Bandmate Way",
+                  "city": "Raleigh",
+                  "state": "NC",
+                  "zip": "27606",
+                  "url": "https://www.example.com/path/to/resource",
+                  "addr2": "2230 Bandmate Way"
+                },
+                "businessContact": {
+                  "firstName": "John",
+                  "lastName": "Doe",
+                  "email": "foo@bar.com",
+                  "phoneNumber": "+19192654500"
+                },
+                "messageVolume": 10000,
+                "phoneNumbers": [
+                  "+18005555555"
+                ],
+                "useCase": "2FA",
+                "useCaseSummary": "Text summarizing the use case for the toll-free number",
+                "productionMessageContent": "Production message content",
+                "optInWorkflow": {
+                  "description": "Opt In Flow",
+                  "imageUrls": [
+                    "https://www.example.com/path/to/resource",
+                    "https://www.example.com/path/to/resource"
+                  ]
+                },
+                "additionalInformation": "Any additional information",
+                "isvReseller": "Test ISV",
+                "privacyPolicyUrl": "http://your-company.com/privacyPolicy",
+                "termsAndConditionsUrl": "http://your-company.com/termsAndConditions",
+                "businessDba": "Another Company Name Inc."
+              }'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class RequestTollFreeVerificationExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+                        var accountId = 9900000;  // string | Your Bandwidth Account ID.
+                        var verificationRequest = new VerificationRequest(); // VerificationRequest | Request for verification of a toll-free phone number.
+
+                        try
+                        {
+                            // Request Toll-Free Verification
+                            apiInstance.RequestTollFreeVerification(accountId, verificationRequest);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.RequestTollFreeVerification: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                String accountId = "9900000"; // String | Your Bandwidth Account ID.
+                VerificationRequest verificationRequest = new VerificationRequest(); // VerificationRequest | Request for verification of a toll-free phone number.
+                try {
+                  apiInstance.requestTollFreeVerification(accountId, verificationRequest);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#requestTollFreeVerification");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.models.verification_request import
+            VerificationRequest
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+                account_id = '9900000' # str | Your Bandwidth Account ID.
+                verification_request = bandwidth.VerificationRequest() # VerificationRequest | Request for verification of a toll-free phone number.
+
+                try:
+                    # Request Toll-Free Verification
+                    api_instance.request_toll_free_verification(account_id, verification_request)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->request_toll_free_verification: %s\n" % e)
+        - lang: Ruby
+          source: >
+            require 'time'
+
+            require 'bandwidth-sdk'
+
+            # setup authorization
+
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+
+            account_id = '9900000' # String | Your Bandwidth Account ID.
+
+            verification_request =
+            Bandwidth::VerificationRequest.new({business_address:
+            Bandwidth::Address.new({name: 'Bandwidth Inc.', addr1: '2230
+            Bandmate Way', city: 'Raleigh', state: 'NC', zip: '27606', url:
+            'https://www.example.com/path/to/resource'}), business_contact:
+            Bandwidth::Contact.new({first_name: 'John', last_name: 'Doe', email:
+            'foo@bar.com', phone_number: '+19192654500'}), message_volume:
+            10000, phone_numbers: ['+18005555555'], use_case: '2FA',
+            use_case_summary: 'Text summarizing the use case for the toll-free
+            number', production_message_content: 'Production message content',
+            opt_in_workflow: Bandwidth::OptInWorkflow.new({description: 'Opt In
+            Flow', image_urls: ['https://www.example.com/path/to/resource']})})
+            # VerificationRequest | Request for verification of a toll-free
+            phone number.
+
+
+            begin
+              # Request Toll-Free Verification
+              api_instance.request_toll_free_verification(account_id, verification_request)
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->request_toll_free_verification: #{e}"
+            end
+        - lang: TypeScript
+          source: >
+            import {
+                TollFreeVerificationApi,
+                Configuration,
+                VerificationRequest
+            } from 'bandwidth-sdk';
+
+
+            const configuration = new Configuration();
+
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+
+            let accountId: string; //Your Bandwidth Account ID. (default to
+            undefined)
+
+            let verificationRequest: VerificationRequest; //Request for
+            verification of a toll-free phone number.
+
+
+            const { status, data } = await
+            apiInstance.requestTollFreeVerification(
+                accountId,
+                verificationRequest
+            );
+  /accounts/{accountId}/phoneNumbers/{phoneNumber}/tollFreeVerification:
+    get:
+      tags:
+        - Toll-Free Verification
+      summary: Get Toll-Free Verification Status
+      description: >-
+        Gets the verification status for a phone number that is provisioned to
+        your account.
+
+        Submission information will be appended to the response if it is
+        available.
+      operationId: getTollFreeVerificationStatus
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/tfPhoneNumberPathParam'
+      responses:
+        '200':
+          $ref: '#/components/responses/getTollFreeVerificationStatusResponse'
+        '400':
+          $ref: '#/components/responses/tfvBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/tfvNotFoundResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl
+            'https://api.bandwidth.com/api/v2/accounts/9900000/phoneNumbers/+18885555555/tollFreeVerification'
+            \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Accept: application/json'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class GetTollFreeVerificationStatusExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+                        var accountId = 9900000;  // string | Your Bandwidth Account ID.
+                        var phoneNumber = +18885555555;  // string | Valid Toll-Free telephone number in E.164 format.
+
+                        try
+                        {
+                            // Get Toll-Free Verification Status
+                            TfvStatus result = apiInstance.GetTollFreeVerificationStatus(accountId, phoneNumber);
+                            Debug.WriteLine(result);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.GetTollFreeVerificationStatus: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                String accountId = "9900000"; // String | Your Bandwidth Account ID.
+                String phoneNumber = "+18885555555"; // String | Valid Toll-Free telephone number in E.164 format.
+                try {
+                  TfvStatus result = apiInstance.getTollFreeVerificationStatus(accountId, phoneNumber);
+                  System.out.println(result);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#getTollFreeVerificationStatus");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.models.tfv_status import TfvStatus
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+                account_id = '9900000' # str | Your Bandwidth Account ID.
+                phone_number = '+18885555555' # str | Valid Toll-Free telephone number in E.164 format.
+
+                try:
+                    # Get Toll-Free Verification Status
+                    api_response = api_instance.get_toll_free_verification_status(account_id, phone_number)
+                    print("The response of TollFreeVerificationApi->get_toll_free_verification_status:\n")
+                    pprint(api_response)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->get_toll_free_verification_status: %s\n" % e)
+        - lang: Ruby
+          source: >
+            require 'time'
+
+            require 'bandwidth-sdk'
+
+            # setup authorization
+
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+
+            account_id = '9900000' # String | Your Bandwidth Account ID.
+
+            phone_number = '+18885555555' # String | Valid Toll-Free telephone
+            number in E.164 format.
+
+
+            begin
+              # Get Toll-Free Verification Status
+              result = api_instance.get_toll_free_verification_status(account_id, phone_number)
+              p result
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->get_toll_free_verification_status: #{e}"
+            end
+        - lang: TypeScript
+          source: >
+            import {
+                TollFreeVerificationApi,
+                Configuration
+            } from 'bandwidth-sdk';
+
+
+            const configuration = new Configuration();
+
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+
+            let accountId: string; //Your Bandwidth Account ID. (default to
+            undefined)
+
+            let phoneNumber: string; //Valid Toll-Free telephone number in E.164
+            format. (default to undefined)
+
+
+            const { status, data } = await
+            apiInstance.getTollFreeVerificationStatus(
+                accountId,
+                phoneNumber
+            );
+    put:
+      tags:
+        - Toll-Free Verification
+      summary: Update Toll-Free Verification Request
+      description: >-
+        Updates a toll-free verification request.
+
+        Submissions are only eligible for resubmission for 7 days within being
+        processed and if resubmission is allowed (resubmitAllowed field is
+        true).
+      operationId: updateTollFreeVerificationRequest
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/tfPhoneNumberPathParam'
+      requestBody:
+        $ref: '#/components/requestBodies/updateTollFreeVerificationRequestRequest'
+      responses:
+        '202':
+          $ref: '#/components/responses/verifyPutResponse'
+        '400':
+          $ref: '#/components/responses/tfvPostBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      callbacks:
+        tfVerificationStatus:
+          $ref: '#/components/callbacks/tfVerificationStatus'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl -X PUT
+            'https://api.bandwidth.com/api/v2/accounts/9900000/phoneNumbers/+18885555555/tollFreeVerification'
+            \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              --data-raw '{
+                "submission": {
+                  "businessAddress": {
+                    "name": "Bandwidth Inc.",
+                    "addr1": "2230 Bandmate Way",
+                    "city": "Raleigh",
+                    "state": "NC",
+                    "zip": "27606",
+                    "url": "https://www.example.com/path/to/resource",
+                    "addr2": "2230 Bandmate Way"
+                  },
+                  "businessContact": {
+                    "firstName": "John",
+                    "lastName": "Doe",
+                    "email": "foo@bar.com",
+                    "phoneNumber": "+19192654500"
+                  },
+                  "messageVolume": 10000,
+                  "useCase": "2FA",
+                  "useCaseSummary": "Text summarizing the use case for the toll-free number",
+                  "productionMessageContent": "Production message content",
+                  "optInWorkflow": {
+                    "description": "Opt In Flow",
+                    "imageUrls": [
+                      "https://www.example.com/path/to/resource",
+                      "https://www.example.com/path/to/resource"
+                    ]
+                  },
+                  "additionalInformation": "Any additional information",
+                  "isvReseller": "Test ISV",
+                  "privacyPolicyUrl": "http://your-company.com/privacyPolicy",
+                  "termsAndConditionsUrl": "http://your-company.com/termsAndConditions",
+                  "businessDba": "Another Company Name Inc."
+                }
+              }'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class UpdateTollFreeVerificationRequestExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+                        var accountId = 9900000;  // string | Your Bandwidth Account ID.
+                        var phoneNumber = +18885555555;  // string | Valid Toll-Free telephone number in E.164 format.
+                        var tfvSubmissionWrapper = new TfvSubmissionWrapper(); // TfvSubmissionWrapper | Update a request for verification of a toll-free phone number.
+
+                        try
+                        {
+                            // Update Toll-Free Verification Request
+                            apiInstance.UpdateTollFreeVerificationRequest(accountId, phoneNumber, tfvSubmissionWrapper);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.UpdateTollFreeVerificationRequest: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                String accountId = "9900000"; // String | Your Bandwidth Account ID.
+                String phoneNumber = "+18885555555"; // String | Valid Toll-Free telephone number in E.164 format.
+                TfvSubmissionWrapper tfvSubmissionWrapper = new TfvSubmissionWrapper(); // TfvSubmissionWrapper | Update a request for verification of a toll-free phone number.
+                try {
+                  apiInstance.updateTollFreeVerificationRequest(accountId, phoneNumber, tfvSubmissionWrapper);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#updateTollFreeVerificationRequest");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.models.tfv_submission_wrapper import
+            TfvSubmissionWrapper
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+                account_id = '9900000' # str | Your Bandwidth Account ID.
+                phone_number = '+18885555555' # str | Valid Toll-Free telephone number in E.164 format.
+                tfv_submission_wrapper = bandwidth.TfvSubmissionWrapper() # TfvSubmissionWrapper | Update a request for verification of a toll-free phone number.
+
+                try:
+                    # Update Toll-Free Verification Request
+                    api_instance.update_toll_free_verification_request(account_id, phone_number, tfv_submission_wrapper)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->update_toll_free_verification_request: %s\n" % e)
+        - lang: Ruby
+          source: >
+            require 'time'
+
+            require 'bandwidth-sdk'
+
+            # setup authorization
+
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+
+            account_id = '9900000' # String | Your Bandwidth Account ID.
+
+            phone_number = '+18885555555' # String | Valid Toll-Free telephone
+            number in E.164 format.
+
+            tfv_submission_wrapper = Bandwidth::TfvSubmissionWrapper.new #
+            TfvSubmissionWrapper | Update a request for verification of a
+            toll-free phone number.
+
+
+            begin
+              # Update Toll-Free Verification Request
+              api_instance.update_toll_free_verification_request(account_id, phone_number, tfv_submission_wrapper)
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->update_toll_free_verification_request: #{e}"
+            end
+        - lang: TypeScript
+          source: >
+            import {
+                TollFreeVerificationApi,
+                Configuration,
+                TfvSubmissionWrapper
+            } from 'bandwidth-sdk';
+
+
+            const configuration = new Configuration();
+
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+
+            let accountId: string; //Your Bandwidth Account ID. (default to
+            undefined)
+
+            let phoneNumber: string; //Valid Toll-Free telephone number in E.164
+            format. (default to undefined)
+
+            let tfvSubmissionWrapper: TfvSubmissionWrapper; //Update a request
+            for verification of a toll-free phone number.
+
+
+            const { status, data } = await
+            apiInstance.updateTollFreeVerificationRequest(
+                accountId,
+                phoneNumber,
+                tfvSubmissionWrapper
+            );
+    delete:
+      description: Delete a toll-free verification submission for a toll-free number.
+      operationId: deleteVerificationRequest
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/tfPhoneNumberPathParam'
+      responses:
+        '204':
+          $ref: '#/components/responses/noContentResponse'
+        '400':
+          $ref: '#/components/responses/tfvBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/tfvNotFoundResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      summary: Delete a Toll-Free Verification Submission
+      tags:
+        - Toll-Free Verification
+  /accounts/{accountId}/tollFreeVerification/webhooks/subscriptions:
+    get:
+      tags:
+        - Toll-Free Verification
+      summary: List Webhook Subscriptions
+      description: >-
+        Lists all webhook subscriptions that are registered to receive status
+        updates for the toll-free verification requests submitted under this
+        account (password will not be returned through this API
+
+        If `basicAuthentication` is defined, the `password` property of that
+        object will be null).
+      operationId: listWebhookSubscriptions
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      responses:
+        '200':
+          $ref: '#/components/responses/listWebhookSubscriptionsResponse'
+        '400':
+          $ref: '#/components/responses/tfvPostBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl
+            'https://api.bandwidth.com/api/v2/accounts/9900000/tollFreeVerification/webhooks/subscriptions'
+            \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Accept: application/json'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class ListWebhookSubscriptionsExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+                        var accountId = 9900000;  // string | Your Bandwidth Account ID.
+
+                        try
+                        {
+                            // List Webhook Subscriptions
+                            WebhookSubscriptionsListBody result = apiInstance.ListWebhookSubscriptions(accountId);
+                            Debug.WriteLine(result);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.ListWebhookSubscriptions: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                String accountId = "9900000"; // String | Your Bandwidth Account ID.
+                try {
+                  WebhookSubscriptionsListBody result = apiInstance.listWebhookSubscriptions(accountId);
+                  System.out.println(result);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#listWebhookSubscriptions");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.models.webhook_subscriptions_list_body import
+            WebhookSubscriptionsListBody
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+                account_id = '9900000' # str | Your Bandwidth Account ID.
+
+                try:
+                    # List Webhook Subscriptions
+                    api_response = api_instance.list_webhook_subscriptions(account_id)
+                    print("The response of TollFreeVerificationApi->list_webhook_subscriptions:\n")
+                    pprint(api_response)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->list_webhook_subscriptions: %s\n" % e)
+        - lang: Ruby
+          source: |
+            require 'time'
+            require 'bandwidth-sdk'
+            # setup authorization
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+            account_id = '9900000' # String | Your Bandwidth Account ID.
+
+            begin
+              # List Webhook Subscriptions
+              result = api_instance.list_webhook_subscriptions(account_id)
+              p result
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->list_webhook_subscriptions: #{e}"
+            end
+        - lang: TypeScript
+          source: >
+            import {
+                TollFreeVerificationApi,
+                Configuration
+            } from 'bandwidth-sdk';
+
+
+            const configuration = new Configuration();
+
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+
+            let accountId: string; //Your Bandwidth Account ID. (default to
+            undefined)
+
+
+            const { status, data } = await apiInstance.listWebhookSubscriptions(
+                accountId
+            );
+    post:
+      tags:
+        - Toll-Free Verification
+      summary: Create Webhook Subscription
+      description: >-
+        Create a new webhook subscription (this webhook will be called for every
+        update on every submission).
+
+        In addition to a `callbackUrl`, this subscription can provide optional
+        HTTP basic authentication credentials (a username and a password).
+
+        The returned subscription object will contain an ID that can be used to
+        modify or delete the subscription at a later time.
+      operationId: createWebhookSubscription
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+      requestBody:
+        $ref: '#/components/requestBodies/webhookSubscriptionRequest'
+      responses:
+        '201':
+          $ref: '#/components/responses/createWebhookSubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/tfvBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/tfvNotFoundResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl
+            'https://api.bandwidth.com/api/v2/accounts/9900000/tollFreeVerification/webhooks/subscriptions'
+            \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              -d '{
+                "callbackUrl": "https://www.example.com/path/to/resource",
+                "basicAuthentication": {
+                  "username": "username",
+                  "password": "password"
+                },
+                "sharedSecretKey": "This is my $3cret"
+              }'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class CreateWebhookSubscriptionExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+                        var accountId = 9900000;  // string | Your Bandwidth Account ID.
+                        var webhookSubscriptionRequestSchema = new WebhookSubscriptionRequestSchema(); // WebhookSubscriptionRequestSchema | Information about a webhook that Bandwidth should send upon the completion of event customer is trying to subscribe to.
+
+                        try
+                        {
+                            // Create Webhook Subscription
+                            WebhookSubscription result = apiInstance.CreateWebhookSubscription(accountId, webhookSubscriptionRequestSchema);
+                            Debug.WriteLine(result);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.CreateWebhookSubscription: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                String accountId = "9900000"; // String | Your Bandwidth Account ID.
+                WebhookSubscriptionRequestSchema webhookSubscriptionRequestSchema = new WebhookSubscriptionRequestSchema(); // WebhookSubscriptionRequestSchema | Information about a webhook that Bandwidth should send upon the completion of event customer is trying to subscribe to.
+                try {
+                  WebhookSubscription result = apiInstance.createWebhookSubscription(accountId, webhookSubscriptionRequestSchema);
+                  System.out.println(result);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#createWebhookSubscription");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.models.webhook_subscription import
+            WebhookSubscription
+
+            from bandwidth.models.webhook_subscription_request_schema import
+            WebhookSubscriptionRequestSchema
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+                account_id = '9900000' # str | Your Bandwidth Account ID.
+                webhook_subscription_request_schema = bandwidth.WebhookSubscriptionRequestSchema() # WebhookSubscriptionRequestSchema | Information about a webhook that Bandwidth should send upon the completion of event customer is trying to subscribe to.
+
+                try:
+                    # Create Webhook Subscription
+                    api_response = api_instance.create_webhook_subscription(account_id, webhook_subscription_request_schema)
+                    print("The response of TollFreeVerificationApi->create_webhook_subscription:\n")
+                    pprint(api_response)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->create_webhook_subscription: %s\n" % e)
+        - lang: Ruby
+          source: >
+            require 'time'
+
+            require 'bandwidth-sdk'
+
+            # setup authorization
+
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+
+            account_id = '9900000' # String | Your Bandwidth Account ID.
+
+            webhook_subscription_request_schema =
+            Bandwidth::WebhookSubscriptionRequestSchema.new({callback_url:
+            'https://www.example.com/path/to/resource'}) #
+            WebhookSubscriptionRequestSchema | Information about a webhook that
+            Bandwidth should send upon the completion of event customer is
+            trying to subscribe to.
+
+
+            begin
+              # Create Webhook Subscription
+              result = api_instance.create_webhook_subscription(account_id, webhook_subscription_request_schema)
+              p result
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->create_webhook_subscription: #{e}"
+            end
+        - lang: TypeScript
+          source: >
+            import {
+                TollFreeVerificationApi,
+                Configuration,
+                WebhookSubscriptionRequestSchema
+            } from 'bandwidth-sdk';
+
+
+            const configuration = new Configuration();
+
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+
+            let accountId: string; //Your Bandwidth Account ID. (default to
+            undefined)
+
+            let webhookSubscriptionRequestSchema:
+            WebhookSubscriptionRequestSchema; //Information about a webhook that
+            Bandwidth should send upon the completion of event customer is
+            trying to subscribe to.
+
+
+            const { status, data } = await
+            apiInstance.createWebhookSubscription(
+                accountId,
+                webhookSubscriptionRequestSchema
+            );
+  /accounts/{accountId}/tollFreeVerification/webhooks/subscriptions/{id}:
+    delete:
+      tags:
+        - Toll-Free Verification
+      summary: Delete Webhook Subscription
+      description: Delete a webhook subscription by ID.
+      operationId: deleteWebhookSubscription
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/webhookSubscriptionIdPathParam'
+      responses:
+        '204':
+          $ref: '#/components/responses/noContentResponse'
+        '400':
+          $ref: '#/components/responses/tfvBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/tfvNotFoundResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl -X DELETE
+            'https://api.bandwidth.com/api/v2/accounts/9900000/tollFreeVerification/webhooks/subscriptions/7bt57JcsVYJrN9K1OcV1Nu'
+            \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Accept: application/json'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class DeleteWebhookSubscriptionExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+                        var accountId = 9900000;  // string | Your Bandwidth Account ID.
+                        var id = 7bt57JcsVYJrN9K1OcV1Nu;  // string | Webhook subscription ID
+
+                        try
+                        {
+                            // Delete Webhook Subscription
+                            apiInstance.DeleteWebhookSubscription(accountId, id);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.DeleteWebhookSubscription: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                String accountId = "9900000"; // String | Your Bandwidth Account ID.
+                String id = "7bt57JcsVYJrN9K1OcV1Nu"; // String | Webhook subscription ID
+                try {
+                  apiInstance.deleteWebhookSubscription(accountId, id);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#deleteWebhookSubscription");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+                account_id = '9900000' # str | Your Bandwidth Account ID.
+                id = '7bt57JcsVYJrN9K1OcV1Nu' # str | Webhook subscription ID
+
+                try:
+                    # Delete Webhook Subscription
+                    api_instance.delete_webhook_subscription(account_id, id)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->delete_webhook_subscription: %s\n" % e)
+        - lang: Ruby
+          source: |
+            require 'time'
+            require 'bandwidth-sdk'
+            # setup authorization
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+            account_id = '9900000' # String | Your Bandwidth Account ID.
+            id = '7bt57JcsVYJrN9K1OcV1Nu' # String | Webhook subscription ID
+
+            begin
+              # Delete Webhook Subscription
+              api_instance.delete_webhook_subscription(account_id, id)
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->delete_webhook_subscription: #{e}"
+            end
+        - lang: TypeScript
+          source: >
+            import {
+                TollFreeVerificationApi,
+                Configuration
+            } from 'bandwidth-sdk';
+
+
+            const configuration = new Configuration();
+
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+
+            let accountId: string; //Your Bandwidth Account ID. (default to
+            undefined)
+
+            let id: string; //Webhook subscription ID (default to undefined)
+
+
+            const { status, data } = await
+            apiInstance.deleteWebhookSubscription(
+                accountId,
+                id
+            );
+    put:
+      tags:
+        - Toll-Free Verification
+      summary: Update Webhook Subscription
+      description: >-
+        Update an existing webhook subscription (`callbackUrl` and
+        `basicAuthentication` can be updated).
+      operationId: updateWebhookSubscription
+      parameters:
+        - $ref: '#/components/parameters/accountId'
+        - $ref: '#/components/parameters/webhookSubscriptionIdPathParam'
+      requestBody:
+        $ref: '#/components/requestBodies/webhookSubscriptionRequest'
+      responses:
+        '200':
+          $ref: '#/components/responses/updateWebhookSubscriptionResponse'
+        '400':
+          $ref: '#/components/responses/tfvBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/tfvNotFoundResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl -X PUT
+            'https://api.bandwidth.com/api/v2/accounts/9900000/tollFreeVerification/webhooks/subscriptions/7bt57JcsVYJrN9K1OcV1Nu'
+            \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' \
+              -d '{
+                "callbackUrl": "https://www.example.com/path/to/resource",
+                "basicAuthentication": {
+                  "username": "username",
+                  "password": "password"
+                },
+                "sharedSecretKey": "This is my $3cret"
+              }'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class UpdateWebhookSubscriptionExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+                        var accountId = 9900000;  // string | Your Bandwidth Account ID.
+                        var id = 7bt57JcsVYJrN9K1OcV1Nu;  // string | Webhook subscription ID
+                        var webhookSubscriptionRequestSchema = new WebhookSubscriptionRequestSchema(); // WebhookSubscriptionRequestSchema | Information about a webhook that Bandwidth should send upon the completion of event customer is trying to subscribe to.
+
+                        try
+                        {
+                            // Update Webhook Subscription
+                            WebhookSubscription result = apiInstance.UpdateWebhookSubscription(accountId, id, webhookSubscriptionRequestSchema);
+                            Debug.WriteLine(result);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.UpdateWebhookSubscription: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                String accountId = "9900000"; // String | Your Bandwidth Account ID.
+                String id = "7bt57JcsVYJrN9K1OcV1Nu"; // String | Webhook subscription ID
+                WebhookSubscriptionRequestSchema webhookSubscriptionRequestSchema = new WebhookSubscriptionRequestSchema(); // WebhookSubscriptionRequestSchema | Information about a webhook that Bandwidth should send upon the completion of event customer is trying to subscribe to.
+                try {
+                  WebhookSubscription result = apiInstance.updateWebhookSubscription(accountId, id, webhookSubscriptionRequestSchema);
+                  System.out.println(result);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#updateWebhookSubscription");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.models.webhook_subscription import
+            WebhookSubscription
+
+            from bandwidth.models.webhook_subscription_request_schema import
+            WebhookSubscriptionRequestSchema
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+                account_id = '9900000' # str | Your Bandwidth Account ID.
+                id = '7bt57JcsVYJrN9K1OcV1Nu' # str | Webhook subscription ID
+                webhook_subscription_request_schema = bandwidth.WebhookSubscriptionRequestSchema() # WebhookSubscriptionRequestSchema | Information about a webhook that Bandwidth should send upon the completion of event customer is trying to subscribe to.
+
+                try:
+                    # Update Webhook Subscription
+                    api_response = api_instance.update_webhook_subscription(account_id, id, webhook_subscription_request_schema)
+                    print("The response of TollFreeVerificationApi->update_webhook_subscription:\n")
+                    pprint(api_response)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->update_webhook_subscription: %s\n" % e)
+        - lang: Ruby
+          source: >
+            require 'time'
+
+            require 'bandwidth-sdk'
+
+            # setup authorization
+
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+
+            account_id = '9900000' # String | Your Bandwidth Account ID.
+
+            id = '7bt57JcsVYJrN9K1OcV1Nu' # String | Webhook subscription ID
+
+            webhook_subscription_request_schema =
+            Bandwidth::WebhookSubscriptionRequestSchema.new({callback_url:
+            'https://www.example.com/path/to/resource'}) #
+            WebhookSubscriptionRequestSchema | Information about a webhook that
+            Bandwidth should send upon the completion of event customer is
+            trying to subscribe to.
+
+
+            begin
+              # Update Webhook Subscription
+              result = api_instance.update_webhook_subscription(account_id, id, webhook_subscription_request_schema)
+              p result
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->update_webhook_subscription: #{e}"
+            end
+        - lang: TypeScript
+          source: >
+            import {
+                TollFreeVerificationApi,
+                Configuration,
+                WebhookSubscriptionRequestSchema
+            } from 'bandwidth-sdk';
+
+
+            const configuration = new Configuration();
+
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+
+            let accountId: string; //Your Bandwidth Account ID. (default to
+            undefined)
+
+            let id: string; //Webhook subscription ID (default to undefined)
+
+            let webhookSubscriptionRequestSchema:
+            WebhookSubscriptionRequestSchema; //Information about a webhook that
+            Bandwidth should send upon the completion of event customer is
+            trying to subscribe to.
+
+
+            const { status, data } = await
+            apiInstance.updateWebhookSubscription(
+                accountId,
+                id,
+                webhookSubscriptionRequestSchema
+            );
+  /tollFreeVerification/useCases:
+    get:
+      tags:
+        - Toll-Free Verification
+      summary: List Toll-Free Use Cases
+      description: Lists valid toll-free use cases.
+      operationId: listTollFreeUseCases
+      responses:
+        '200':
+          $ref: '#/components/responses/listTollFreeUseCasesResponse'
+        '400':
+          $ref: '#/components/responses/tfvBadRequestResponse'
+        '401':
+          $ref: '#/components/responses/tfvUnauthorizedResponse'
+        '403':
+          $ref: '#/components/responses/tfvForbiddenResponse'
+        '404':
+          $ref: '#/components/responses/tfvNotFoundResponse'
+        '405':
+          $ref: '#/components/responses/tfvNotAllowedResponse'
+        '429':
+          $ref: '#/components/responses/tfvTooManyRequestsResponse'
+        '500':
+          $ref: '#/components/responses/tfvServerErrorResponse'
+        '503':
+          $ref: '#/components/responses/tfvServiceUnavailableResponse'
+      x-codeSamples:
+        - lang: cURL
+          source: >-
+            curl
+            'https://api.bandwidth.com/api/v2/tollFreeVerification/useCases' \
+              -H 'Authorization: Basic dXNlcm5hbWU6cGFzc3dvcmQ=' \
+              -H 'Accept: application/json'
+        - lang: C#
+          source: |
+            using System.Collections.Generic;
+            using System.Diagnostics;
+            using Bandwidth.Standard.Api;
+            using Bandwidth.Standard.Client;
+            using Bandwidth.Standard.Model;
+
+            namespace Example
+            {
+                public class ListTollFreeUseCasesExample
+                {
+                    public static void Main()
+                    {
+                        Configuration config = new Configuration();
+                        config.BasePath = "http://localhost";
+                        // Configure HTTP basic authorization: Basic
+                        config.Username = "YOUR_USERNAME";
+                        config.Password = "YOUR_PASSWORD";
+
+                        var apiInstance = new TollFreeVerificationApi(config);
+
+                        try
+                        {
+                            // List Toll-Free Use Cases
+                            List<string> result = apiInstance.ListTollFreeUseCases();
+                            Debug.WriteLine(result);
+                        }
+                        catch (ApiException  e)
+                        {
+                            Debug.Print("Exception when calling TollFreeVerificationApi.ListTollFreeUseCases: " + e.Message);
+                            Debug.Print("Status Code: " + e.ErrorCode);
+                            Debug.Print(e.StackTrace);
+                        }
+                    }
+                }
+            }
+        - lang: Java
+          source: |
+            // Import classes:
+            import com.bandwidth.sdk.ApiClient;
+            import com.bandwidth.sdk.ApiException;
+            import com.bandwidth.sdk.Configuration;
+            import com.bandwidth.sdk.auth.*;
+            import com.bandwidth.sdk.models.*;
+            import com.bandwidth.sdk.api.TollFreeVerificationApi;
+
+            public class Example {
+              public static void main(String[] args) {
+                ApiClient defaultClient = Configuration.getDefaultApiClient();
+                defaultClient.setBasePath("http://localhost");
+                
+                // Configure HTTP basic authorization: Basic
+                HttpBasicAuth Basic = (HttpBasicAuth) defaultClient.getAuthentication("Basic");
+                Basic.setUsername("YOUR USERNAME");
+                Basic.setPassword("YOUR PASSWORD");
+
+                TollFreeVerificationApi apiInstance = new TollFreeVerificationApi(defaultClient);
+                try {
+                  List<String> result = apiInstance.listTollFreeUseCases();
+                  System.out.println(result);
+                } catch (ApiException e) {
+                  System.err.println("Exception when calling TollFreeVerificationApi#listTollFreeUseCases");
+                  System.err.println("Status code: " + e.getCode());
+                  System.err.println("Reason: " + e.getResponseBody());
+                  System.err.println("Response headers: " + e.getResponseHeaders());
+                  e.printStackTrace();
+                }
+              }
+            }
+        - lang: Python
+          source: >
+            import bandwidth
+
+            from bandwidth.rest import ApiException
+
+            from pprint import pprint
+
+
+            # Defining the host is optional and defaults to http://localhost
+
+            # See configuration.py for a list of all supported configuration
+            parameters.
+
+            configuration = bandwidth.Configuration(
+                host = "http://localhost"
+            )
+
+
+            # The client must configure the authentication and authorization
+            parameters
+
+            # in accordance with the API server security policy.
+
+            # Examples for each auth method are provided below, use the example
+            that
+
+            # satisfies your auth use case.
+
+
+            # Configure HTTP basic authorization: Basic
+
+            configuration = bandwidth.Configuration(
+                username = os.environ["USERNAME"],
+                password = os.environ["PASSWORD"]
+            )
+
+
+            # Enter a context with an instance of the API client
+
+            with bandwidth.ApiClient(configuration) as api_client:
+                # Create an instance of the API class
+                api_instance = bandwidth.TollFreeVerificationApi(api_client)
+
+                try:
+                    # List Toll-Free Use Cases
+                    api_response = api_instance.list_toll_free_use_cases()
+                    print("The response of TollFreeVerificationApi->list_toll_free_use_cases:\n")
+                    pprint(api_response)
+                except Exception as e:
+                    print("Exception when calling TollFreeVerificationApi->list_toll_free_use_cases: %s\n" % e)
+        - lang: Ruby
+          source: |
+            require 'time'
+            require 'bandwidth-sdk'
+            # setup authorization
+            Bandwidth.configure do |config|
+              # Configure HTTP basic authorization: Basic
+              config.username = 'YOUR USERNAME'
+              config.password = 'YOUR PASSWORD'
+            end
+
+            api_instance = Bandwidth::TollFreeVerificationApi.new
+
+            begin
+              # List Toll-Free Use Cases
+              result = api_instance.list_toll_free_use_cases
+              p result
+            rescue Bandwidth::ApiError => e
+              puts "Error when calling TollFreeVerificationApi->list_toll_free_use_cases: #{e}"
+            end
+        - lang: TypeScript
+          source: |
+            import {
+                TollFreeVerificationApi,
+                Configuration
+            } from 'bandwidth-sdk';
+
+            const configuration = new Configuration();
+            const apiInstance = new TollFreeVerificationApi(configuration);
+
+            const { status, data } = await apiInstance.listTollFreeUseCases();
+components:
+  parameters:
+    accountId:
+      in: path
+      name: accountId
+      required: true
+      schema:
+        type: string
+      description: Your Bandwidth Account ID.
+      example: '9900000'
+    tfPhoneNumberPathParam:
+      in: path
+      name: phoneNumber
+      required: true
+      schema:
+        $ref: '#/components/schemas/tfPhoneNumber'
+      description: Valid Toll-Free telephone number in E.164 format.
+      example: '+18885555555'
+    webhookSubscriptionIdPathParam:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+      description: Webhook subscription ID
+      example: 7bt57JcsVYJrN9K1OcV1Nu
+  requestBodies:
+    requestTollFreeVerificationRequest:
+      description: Request for verification of a toll-free phone number.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/verificationRequest'
+    updateTollFreeVerificationRequestRequest:
+      description: Update a request for verification of a toll-free phone number.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvSubmissionWrapper'
+    verificationWebhookRequest:
+      description: Verification callback status of a toll-free phone number.
+      required: true
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/verificationWebhook'
+              - $ref: '#/components/schemas/verificationDenialWebhook'
+              - $ref: '#/components/schemas/failureWebhook'
+              - $ref: '#/components/schemas/blockedWebhook'
+    webhookSubscriptionRequest:
+      description: >-
+        Information about a webhook that Bandwidth should send upon the
+        completion of event customer is trying to subscribe to.
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/webhookSubscriptionRequestSchema'
+  responses:
+    getTollFreeVerificationStatusResponse:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvStatus'
+    listWebhookSubscriptionsResponse:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/webhookSubscriptionsListBody'
+    createWebhookSubscriptionResponse:
+      description: Created
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/webhookSubscription'
+    updateWebhookSubscriptionResponse:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/webhookSubscription'
+    listTollFreeUseCasesResponse:
+      description: OK
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/useCases'
+    tfvBadRequestResponse:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Cannot process request.
+            type: bad request
+    noContentResponse:
+      description: No Content
+    tfvPostBadRequestResponse:
+      description: Bad Request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: cannot process request.
+            errors:
+              businessName: Business name is required.
+              businessContactEmail: Business contact email is not a valid email address.
+              optInWorkflowImageURLs: Entries must be a valid array of objects.
+    tfvUnauthorizedResponse:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Client is providing incorrect or invalid credentials.
+            type: unauthorized
+    tfvForbiddenResponse:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Client is not authorized for the action.
+            type: forbidden
+    tfvNotFoundResponse:
+      description: Cannot find the requested resource.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Cannot find the requested resource.
+            type: Not Found
+    tfvNotAllowedResponse:
+      description: Method Not Allowed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Method is not allowed.
+            type: Method Not Allowed
+    tfvTooManyRequestsResponse:
+      description: Too Many Requests
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Throttling error. Too many requests.
+            type: Too Many Requests
+    tfvServerErrorResponse:
+      description: Internal Server Error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Internal Server Error.
+            type: Internal Server Error
+    tfvServiceUnavailableResponse:
+      description: Service Unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/tfvError'
+          example:
+            description: Service Unavailable Error.
+            type: Service Unavailable
+    verifyPutResponse:
+      description: Accepted
+  schemas:
+    accountId:
+      type: string
+      description: User's account ID.
+      example: '1234567'
+    tfPhoneNumber:
+      type: string
+      description: Toll-free telephone number in E.164 format.
+      minLength: 12
+      maxLength: 12
+      nullable: false
+      pattern: ^\+1(800|833|844|855|866|877|888)[2-9]\d{6}$
+      example: '+18005555555'
+    tfvWebhookErrors:
+      type: array
+      description: Details of the errors that were encountered when processing the request.
+      items:
+        type: string
+        example: 'optInWorkflowImageURLs: Entries must be a valid array of objects.'
+    tfvCallbackStatusEnum:
+      type: string
+      enum:
+        - VERIFIED
+        - UNVERIFIED
+      example: VERIFIED
+    tfvUnverifiedStatus:
+      type: string
+      default: UNVERIFIED
+      example: UNVERIFIED
+    declineReasonDescription:
+      type: string
+      description: Explanation for why a verification request was declined.
+      nullable: false
+      example: >-
+        Invalid Information - Can't Validate URL - Website is not accessible /
+        not available
+    denialStatusCode:
+      description: Reason code for denial.
+      type: integer
+      example: 511
+    denialStatusCodeNullable:
+      description: Reason code for denial.
+      nullable: true
+      type: integer
+      example: 511
+    resubmitAllowed:
+      description: >-
+        Whether a Toll-Free Verification request qualifies for resubmission via
+        PUT.
+      example: true
+      type: boolean
+    additionalDenialReason:
+      type: object
+      properties:
+        statusCode:
+          $ref: '#/components/schemas/denialStatusCode'
+        reason:
+          $ref: '#/components/schemas/declineReasonDescription'
+        resubmitAllowed:
+          $ref: '#/components/schemas/resubmitAllowed'
+      required:
+        - statusCode
+        - reason
+        - resubmitAllowed
+    blocked:
+      description: >-
+        Whether a Toll-Free Verification is blocked. This attribute will only be
+        defined when the number is blocked.
+      example: true
+      type: boolean
+    blockedReason:
+      description: >-
+        The reason why the Toll-Free Verification is blocked. This attribute
+        will only be defined when the number is blocked.
+      example: Toll-free number was used to send spam messages
+      type: string
+    privacyPolicyUrl:
+      description: The Toll-Free Verification request privacy policy URL.
+      maxLength: 500
+      example: http://your-company.com/privacyPolicy
+      type: string
+    termsAndConditionsUrl:
+      description: The Toll-Free Verification request terms and conditions policy URL.
+      maxLength: 500
+      example: http://your-company.com/termsAndConditions
+      type: string
+    businessDba:
+      description: The company 'Doing Business As'.
+      maxLength: 500
+      example: Another Company Name Inc.
+      type: string
+    businessRegistrationNumber:
+      type: string
+      description: >
+        Government-issued business identifying number.
+
+
+        **Note: As of October 19th, 2026 this field will be required when
+        `businessEntityType` is _not_ `SOLE_PROPRIETOR`. If this field is
+        provided, `businessRegistrationType` and
+        `businessRegistrationIssuingCountry` are also required.**
+      nullable: true
+      maxLength: 500
+      example: 12-3456789
+    businessRegistrationTypeEnum:
+      type: string
+      description: >
+        The type of business registration number.
+
+
+        **Note: As of October 19th, 2026 this field will be required when
+        `businessRegistrationNumber` is provided.**
+      enum:
+        - EIN
+        - CBN
+        - NEQ
+        - PROVINCIAL_NUMBER
+        - CRN
+        - VAT
+        - ACN
+        - ABN
+        - BRN
+        - SIREN
+        - SIRET
+        - NZBN
+        - UST_IDNR
+        - CIF
+        - NIF
+        - CNPJ
+        - UID
+        - OTHER
+      example: EIN
+      nullable: true
+    businessRegistrationIssuingCountry:
+      type: string
+      description: >-
+        The country issuing the business registration in ISO-3166-1 alpha-3
+        format. Alpha-2 format is accepted by the API, but alpha-3 is highly
+        encouraged.
+
+
+        **Note: As of October 19th, 2026 this field will be required when
+        `businessRegistrationNumber` is provided.**
+
+
+        | Registration Type     | Supported Countries                |
+
+        |----------------------|------------------------------------|
+
+        | EIN                  | USA                                |
+
+        | CBN                  | CAN                                |
+
+        | NEQ                  | CAN                                |
+
+        | PROVINCIAL_NUMBER    | CAN                                |
+
+        | CRN                  | GBR, HKG                           |
+
+        | VAT                  | GBR, IRL, BRA, NLD                 |
+
+        | ACN                  | AUS                                |
+
+        | ABN                  | AUS                                |
+
+        | BRN                  | HKG                                |
+
+        | SIREN                | FRA                                |
+
+        | SIRET                | FRA                                |
+
+        | NZBN                 | NZL                                |
+
+        | UST_IDNR             | DEU                                |
+
+        | CIF                  | ESP                                |
+
+        | NIF                  | ESP                                |
+
+        | CNPJ                 | BRA                                |
+
+        | UID                  | CHE                                |
+
+        | OTHER                | Must Provide Country Code          |
+      example: USA
+      nullable: true
+    businessEntityTypeEnum:
+      type: string
+      description: >
+        The type of registered business.
+
+
+        **Note: As of October 19th, 2026 submissions using a value other than
+        `SOLE_PROPRIETOR` must provide a value for `businessRegistrationNumber`,
+        `businessRegistrationType`, and `businessRegistrationIssuingCountry`. 
+
+        Submissions using `SOLE_PROPRIETOR` must _omit_
+        `businessRegistrationNumber`, `businessRegistrationType`, and
+        `businessRegistrationIssuingCountry`. Failure to adhere to these
+        constraints will result in a 400 Bad Request rejection.**
+      enum:
+        - SOLE_PROPRIETOR
+        - PRIVATE_PROFIT
+        - PUBLIC_PROFIT
+        - NON_PROFIT
+        - GOVERNMENT
+      example: PRIVATE_PROFIT
+      nullable: false
+    helpMessageResponse:
+      type: string
+      description: A message that gets sent to users requesting help.
+      nullable: true
+      maxLength: 500
+      example: Please contact support for assistance.
+    ageGatedContent:
+      type: boolean
+      description: Indicates whether the content is age-gated.
+      example: false
+    internalTicketNumber:
+      type: string
+      description: >-
+        Unique identifier (UUID) generated by Bandwidth to assist in tracking
+        the verification status of a toll-free number - included in all webhook
+        payloads.
+      example: acde070d-8c4c-4f0d-9d8a-162843c10333
+    internalTicketNumberForWebhook:
+      type: string
+      description: >-
+        Unique identifier (UUID) generated by Bandwidth to assist in tracking
+        the verification status of a toll-free number.
+      example: acde070d-8c4c-4f0d-9d8a-162843c10333
+    businessContactPhoneNumber:
+      description: Contact telephone number
+      type: string
+      minLength: 1
+      maxLength: 500
+      nullable: false
+      example: '+19192654500'
+    verificationRequest:
+      type: object
+      required:
+        - businessAddress
+        - businessContact
+        - messageVolume
+        - phoneNumbers
+        - useCase
+        - useCaseSummary
+        - productionMessageContent
+        - optInWorkflow
+        - businessEntityType
+      properties:
+        businessAddress:
+          $ref: '#/components/schemas/address'
+        businessContact:
+          $ref: '#/components/schemas/contact'
+        messageVolume:
+          type: integer
+          description: Estimated monthly volume of messages from the toll-free number.
+          minimum: 10
+          maximum: 10000000
+          example: 10000
+        phoneNumbers:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: '#/components/schemas/tfPhoneNumber'
+        useCase:
+          $ref: '#/components/schemas/useCase'
+        useCaseSummary:
+          $ref: '#/components/schemas/useCaseSummary'
+        productionMessageContent:
+          $ref: '#/components/schemas/productionMessageContent'
+        optInWorkflow:
+          $ref: '#/components/schemas/optInWorkflow'
+        additionalInformation:
+          type: string
+          description: Any additional information.
+          minLength: 0
+          maxLength: 500
+          nullable: true
+          example: Any additional information
+        isvReseller:
+          $ref: '#/components/schemas/isvReseller'
+        privacyPolicyUrl:
+          $ref: '#/components/schemas/privacyPolicyUrl'
+        termsAndConditionsUrl:
+          $ref: '#/components/schemas/termsAndConditionsUrl'
+        businessDba:
+          $ref: '#/components/schemas/businessDba'
+        businessRegistrationNumber:
+          $ref: '#/components/schemas/businessRegistrationNumber'
+        businessRegistrationType:
+          $ref: '#/components/schemas/businessRegistrationTypeEnum'
+        businessRegistrationIssuingCountry:
+          $ref: '#/components/schemas/businessRegistrationIssuingCountry'
+        businessEntityType:
+          $ref: '#/components/schemas/businessEntityTypeEnum'
+        helpMessageResponse:
+          $ref: '#/components/schemas/helpMessageResponse'
+        ageGatedContent:
+          $ref: '#/components/schemas/ageGatedContent'
+        cvToken:
+          $ref: '#/components/schemas/cvTokenNullable'
+    verificationUpdateRequest:
+      type: object
+      required:
+        - businessAddress
+        - businessContact
+        - messageVolume
+        - useCase
+        - useCaseSummary
+        - productionMessageContent
+        - optInWorkflow
+      properties:
+        businessAddress:
+          $ref: '#/components/schemas/address'
+        businessContact:
+          $ref: '#/components/schemas/contact'
+        messageVolume:
+          type: integer
+          description: Estimated monthly volume of messages from the toll-free number.
+          minimum: 10
+          maximum: 10000000
+          example: 10000
+        useCase:
+          $ref: '#/components/schemas/useCase'
+        useCaseSummary:
+          $ref: '#/components/schemas/useCaseSummary'
+        productionMessageContent:
+          $ref: '#/components/schemas/productionMessageContent'
+        optInWorkflow:
+          $ref: '#/components/schemas/optInWorkflow'
+        additionalInformation:
+          $ref: '#/components/schemas/additionalInformation'
+        isvReseller:
+          $ref: '#/components/schemas/isvReseller'
+        privacyPolicyUrl:
+          $ref: '#/components/schemas/privacyPolicyUrl'
+        termsAndConditionsUrl:
+          $ref: '#/components/schemas/termsAndConditionsUrl'
+        businessDba:
+          $ref: '#/components/schemas/businessDba'
+        businessRegistrationNumber:
+          $ref: '#/components/schemas/businessRegistrationNumber'
+        businessRegistrationType:
+          $ref: '#/components/schemas/businessRegistrationTypeEnum'
+        businessEntityType:
+          $ref: '#/components/schemas/businessEntityTypeEnum'
+        businessRegistrationIssuingCountry:
+          $ref: '#/components/schemas/businessRegistrationIssuingCountry'
+        helpMessageResponse:
+          $ref: '#/components/schemas/helpMessageResponse'
+        ageGatedContent:
+          $ref: '#/components/schemas/ageGatedContent'
+        cvToken:
+          $ref: '#/components/schemas/cvTokenNullable'
+    tfvBasicAuthentication:
+      type: object
+      properties:
+        username:
+          type: string
+          maxLength: 100
+          example: username
+        password:
+          type: string
+          maxLength: 200
+          example: password
+      required:
+        - username
+        - password
+    webhookSubscriptionRequestSchema:
+      type: object
+      properties:
+        basicAuthentication:
+          $ref: '#/components/schemas/tfvBasicAuthentication'
+        callbackUrl:
+          $ref: '#/components/schemas/webhookUrl'
+        sharedSecretKey:
+          $ref: '#/components/schemas/sharedSecretKey'
+      required:
+        - callbackUrl
+    failureWebhook:
+      type: object
+      properties:
+        accountId:
+          $ref: '#/components/schemas/accountId'
+        phoneNumber:
+          $ref: '#/components/schemas/tfPhoneNumber'
+        errorCode:
+          type: string
+          description: >-
+            An error code indicating what error was encountered. This code can
+            be interpreted as an HTTP status code in regards to the error that
+            was encountered.
+          example: '400'
+        errorMessage:
+          type: string
+          description: A description of the error that was encountered.
+          example: cannot process request.
+        errors:
+          $ref: '#/components/schemas/tfvWebhookErrors'
+        internalTicketNumber:
+          $ref: '#/components/schemas/internalTicketNumberForWebhook'
+    verificationDenialWebhook:
+      type: object
+      properties:
+        accountId:
+          $ref: '#/components/schemas/accountId'
+        additionalDenialReasons:
+          description: >-
+            An optional list of denial reasons in addition to
+            declineReasonDescription when multiple reasons apply.
+          type: array
+          items:
+            $ref: '#/components/schemas/additionalDenialReason'
+          example:
+            - statusCode: 512
+              reason: Reason A
+              resubmitAllowed: true
+            - statusCode: 513
+              reason: Reason B
+              resubmitAllowed: true
+        declineReasonDescription:
+          $ref: '#/components/schemas/declineReasonDescription'
+        denialStatusCode:
+          $ref: '#/components/schemas/denialStatusCode'
+        internalTicketNumber:
+          $ref: '#/components/schemas/internalTicketNumberForWebhook'
+        phoneNumber:
+          $ref: '#/components/schemas/tfPhoneNumber'
+        resubmitAllowed:
+          $ref: '#/components/schemas/resubmitAllowed'
+        status:
+          $ref: '#/components/schemas/tfvUnverifiedStatus'
+        blocked:
+          $ref: '#/components/schemas/blocked'
+        blockedReason:
+          $ref: '#/components/schemas/blockedReason'
+    verificationWebhook:
+      type: object
+      properties:
+        accountId:
+          $ref: '#/components/schemas/accountId'
+        phoneNumber:
+          $ref: '#/components/schemas/tfPhoneNumber'
+        status:
+          $ref: '#/components/schemas/tfvCallbackStatusEnum'
+        internalTicketNumber:
+          $ref: '#/components/schemas/internalTicketNumberForWebhook'
+    blockedWebhook:
+      type: object
+      properties:
+        accountId:
+          $ref: '#/components/schemas/accountId'
+        phoneNumber:
+          $ref: '#/components/schemas/tfPhoneNumber'
+        status:
+          $ref: '#/components/schemas/tfvCallbackStatusEnum'
+        internalTicketNumber:
+          $ref: '#/components/schemas/internalTicketNumberForWebhook'
+        blocked:
+          $ref: '#/components/schemas/blocked'
+        blockedReason:
+          $ref: '#/components/schemas/blockedReason'
+    tfvSubmissionWrapper:
+      type: object
+      properties:
+        submission:
+          $ref: '#/components/schemas/verificationUpdateRequest'
+    address:
+      type: object
+      nullable: false
+      required:
+        - name
+        - addr1
+        - city
+        - state
+        - zip
+        - url
+      properties:
+        name:
+          type: string
+          description: The name of the business using the toll-free number.
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: Bandwidth Inc.
+        addr1:
+          type: string
+          description: The address of the business using the toll-free number.
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: 2230 Bandmate Way
+        addr2:
+          type: string
+          description: The address of the business using the toll-free number.
+          minLength: 0
+          maxLength: 500
+          nullable: true
+          example: 2230 Bandmate Way
+        city:
+          type: string
+          description: The city of the business using the toll-free number.
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: Raleigh
+        state:
+          type: string
+          description: The state of the business using the toll-free number.
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: NC
+        zip:
+          type: string
+          description: The zip of the business using the toll-free number.
+          nullable: false
+          example: '27606'
+          pattern: '[- A-Za-z0-9]{0,500}'
+        url:
+          type: string
+          format: url
+          description: The website of the business using the toll-free number.
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: https://www.example.com/path/to/resource
+    additionalInformation:
+      type: string
+      description: Any additional information.
+      minLength: 0
+      maxLength: 500
+      nullable: true
+      example: Any additional information
+    optInWorkflow:
+      type: object
+      nullable: false
+      required:
+        - description
+        - imageUrls
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: Opt In Flow
+        imageUrls:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 500
+            nullable: false
+            example: https://www.example.com/path/to/resource
+            pattern: >-
+              ^$|(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,253}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#()?&//=]*)
+        confirmationResponse:
+          type: string
+          minLength: 0
+          maxLength: 500
+          nullable: true
+          example: Thank you for opting in!
+    isvReseller:
+      type: string
+      description: ISV name.
+      minLength: 0
+      maxLength: 500
+      nullable: true
+      example: Test ISV
+    contact:
+      type: object
+      nullable: false
+      required:
+        - firstName
+        - lastName
+        - email
+        - phoneNumber
+      properties:
+        firstName:
+          type: string
+          description: The first name of the business contact using the toll-free number.
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: John
+        lastName:
+          type: string
+          description: The last name of the business contact using the toll-free number.
+          minLength: 1
+          maxLength: 500
+          nullable: false
+          example: Doe
+        email:
+          $ref: '#/components/schemas/email'
+        phoneNumber:
+          $ref: '#/components/schemas/businessContactPhoneNumber'
+    email:
+      type: string
+      format: email
+      minLength: 0
+      maxLength: 500
+      nullable: false
+      pattern: >-
+        ^(?:[a-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*|"(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21\x23-\x5b\x5d-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])*")@(?:(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?|\[(?:(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9]))\.){3}(?:(2(5[0-5]|[0-4][0-9])|1[0-9][0-9]|[1-9]?[0-9])|[a-z0-9-]*[a-z0-9]:(?:[\x01-\x08\x0b\x0c\x0e-\x1f\x21-\x5a\x53-\x7f]|\\[\x01-\x09\x0b\x0c\x0e-\x7f])+)\])$
+      example: foo@bar.com
+    useCases:
+      type: array
+      items:
+        type: string
+      example:
+        - 2FA
+        - App Notifications
+        - Appointments
+        - Auctions
+        - Auto Repair Services
+        - Bank Transfers
+        - Billing
+        - Booking Confirmations
+        - Business Updates
+        - COVID-19 Alerts
+    useCase:
+      type: string
+      description: The category of the use case.
+      minLength: 0
+      maxLength: 500
+      example: 2FA
+    useCaseSummary:
+      type: string
+      description: A general idea of the use case and customer.
+      minLength: 0
+      maxLength: 500
+      nullable: false
+      example: Text summarizing the use case for the toll-free number
+    productionMessageContent:
+      type: string
+      description: Example of message content.
+      minLength: 0
+      maxLength: 500
+      nullable: false
+      example: Production message content
+    webhookSubscriptionsListBody:
+      description: >-
+        A list of all webhook subscriptions registered for this account ID for
+        this particular feature (unpaginated).
+      type: object
+      required:
+        - data
+      properties:
+        links:
+          $ref: '#/components/schemas/linksObject'
+        errors:
+          type: array
+          items:
+            $ref: '#/components/schemas/webhookSubscriptionError'
+        data:
+          items:
+            $ref: '#/components/schemas/webhookSubscription'
+          type: array
+    linksObject:
+      type: object
+      properties:
+        first:
+          description: The first (or only) page of results matching the query.
+          type: string
+        next:
+          description: >-
+            If more results exist than specified by 'size', this link returns
+            the next page of 'size' results.
+          type: string
+        previous:
+          description: >-
+            If the results are more than one page, this link returns the
+            previous page of 'size' results.
+          type: string
+        last:
+          description: >-
+            If more results exist than specified by 'size', this link return the
+            last page of result.
+          type: string
+    webhookSubscriptionError:
+      type: object
+      properties:
+        code:
+          type: integer
+        description:
+          type: string
+        telephoneNumbers:
+          type: array
+          items:
+            $ref: '#/components/schemas/telephoneNumber'
+    telephoneNumber:
+      type: object
+      properties:
+        telephoneNumber:
+          description: Simple Telephone Number.
+          type: string
+    webhookSubscriptionTypeEnum:
+      type: string
+      enum:
+        - TOLLFREE_VERIFICATION_STATUS
+        - MESSAGING_PORTOUT_APPROVAL_STATUS
+      example: TOLLFREE_VERIFICATION_STATUS
+    webhookSubscription:
+      description: >-
+        Information about a webhook that Bandwidth should send upon the
+        completion of event customer has subscribed to.
+      type: object
+      required:
+        - callbackUrl
+      properties:
+        id:
+          type: string
+          example: 7hICGStfAfeGxEq3N0lQwO
+        accountId:
+          type: string
+          example: '1234567'
+        callbackUrl:
+          $ref: '#/components/schemas/webhookUrl'
+        type:
+          $ref: '#/components/schemas/webhookSubscriptionTypeEnum'
+        basicAuthentication:
+          description: >-
+            Basic authentication credentials are not required, but if present,
+            both username and password must be provided.
+          type: object
+          required:
+            - username
+            - password
+          properties:
+            username:
+              type: string
+              maxLength: 100
+            password:
+              type: string
+              maxLength: 200
+        createdDate:
+          type: string
+          format: date-time
+          example: '2023-05-15T13:56:39.965Z'
+        modifiedDate:
+          type: string
+          format: date-time
+          example: '2023-05-15T13:56:39.965Z'
+    webhookUrl:
+      description: >-
+        Callback URL to receive status updates from Bandwidth. When a webhook
+        subscription is registered with Bandwidth under a given account ID, it
+        will be used to send status updates for all requests submitted under
+        that account ID.
+      type: string
+      format: url
+      minLength: 0
+      maxLength: 2000
+      nullable: true
+      example: https://www.example.com/path/to/resource
+      pattern: >-
+        ^$|(https?:\/\/)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,253}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#()?&//=]*)
+    tfvError:
+      description: A generic error object.
+      properties:
+        type:
+          type: string
+          example: Error Type
+        description:
+          type: string
+          example: Error Message
+        errors:
+          type: object
+          description: >-
+            Each key of this errors object refers to a field of the submitted
+            object (using dot notation for nested objects), with the field being
+            a key to an array of one or more errors for that field.
+          example:
+            field: error message
+      type: object
+    tfvStatus:
+      type: object
+      properties:
+        phoneNumber:
+          $ref: '#/components/schemas/tfPhoneNumber'
+        status:
+          $ref: '#/components/schemas/tfvStatusEnum'
+        internalTicketNumber:
+          $ref: '#/components/schemas/internalTicketNumber'
+        declineReasonDescription:
+          $ref: '#/components/schemas/declineReasonDescription'
+        denialStatusCode:
+          $ref: '#/components/schemas/denialStatusCodeNullable'
+        additionalDenialReasons:
+          description: >-
+            An optional list of denial reasons in addition to
+            declineReasonDescription when multiple reasons apply.
+          nullable: true
+          type: array
+          items:
+            $ref: '#/components/schemas/additionalDenialReason'
+          example:
+            - statusCode: 512
+              reason: Reason A
+              resubmitAllowed: true
+            - statusCode: 513
+              reason: Reason B
+              resubmitAllowed: true
+        resubmitAllowed:
+          $ref: '#/components/schemas/resubmitAllowed'
+        createdDateTime:
+          type: string
+          description: Date and time the verification request was created.
+          format: date-time
+          example: '2021-06-08T06:45:13.0Z'
+        modifiedDateTime:
+          type: string
+          description: Date and time the verification request was last modified.
+          format: date-time
+          example: '2021-06-08T06:45:13.0Z'
+        submission:
+          $ref: '#/components/schemas/tfvSubmissionInfo'
+        blocked:
+          $ref: '#/components/schemas/blocked'
+        blockedReason:
+          $ref: '#/components/schemas/blockedReason'
+        cvToken:
+          $ref: '#/components/schemas/cvTokenNullable'
+    tfvSubmissionInfo:
+      type: object
+      properties:
+        businessAddress:
+          $ref: '#/components/schemas/address'
+        businessContact:
+          $ref: '#/components/schemas/contact'
+        messageVolume:
+          type: integer
+          description: Estimated monthly volume of messages from the toll-free number.
+          minimum: 10
+          maximum: 10000000
+          example: 10000
+        useCase:
+          $ref: '#/components/schemas/useCase'
+        useCaseSummary:
+          $ref: '#/components/schemas/useCaseSummary'
+        productionMessageContent:
+          $ref: '#/components/schemas/productionMessageContent'
+        optInWorkflow:
+          $ref: '#/components/schemas/optInWorkflow'
+        additionalInformation:
+          $ref: '#/components/schemas/additionalInformation'
+        isvReseller:
+          $ref: '#/components/schemas/isvReseller'
+        privacyPolicyUrl:
+          $ref: '#/components/schemas/privacyPolicyUrl'
+        termsAndConditionsUrl:
+          $ref: '#/components/schemas/termsAndConditionsUrl'
+        businessDba:
+          $ref: '#/components/schemas/businessDba'
+        businessRegistrationNumber:
+          $ref: '#/components/schemas/businessRegistrationNumber'
+          description: Government-issued business identifying number.
+        businessRegistrationType:
+          $ref: '#/components/schemas/businessRegistrationTypeEnum'
+          description: The type of business registration number.
+        businessRegistrationIssuingCountry:
+          $ref: '#/components/schemas/businessRegistrationIssuingCountry'
+          description: >-
+            The country issuing the business registration in ISO-3166-1 alpha-3
+            format.
+        businessEntityType:
+          $ref: '#/components/schemas/businessEntityTypeEnum'
+          description: The type of registered business.
+    tfvStatusEnum:
+      type: string
+      enum:
+        - VERIFIED
+        - UNVERIFIED
+        - PENDING
+      example: VERIFIED
+    sharedSecretKey:
+      description: >-
+        An ASCII string submitted by the user as a shared secret key for
+        generating an HMAC header for callbacks.
+      example: This is my $3cret
+      maxLength: 64
+      minLength: 16
+      nullable: true
+      pattern: ^[ -~]{16,64}$
+      type: string
+    cvTokenNullable:
+      type: string
+      description: >-
+        The token provided by Campaign Verify to validate your political use
+        case. Only required for 527 political organizations. If you are not a
+        527 political organization, this field should be omitted. Supplying an
+        empty string will likely result in rejection.
+      minLength: 0
+      maxLength: 500
+      nullable: true
+      example: >-
+        cv.user123|sess456|mno|tfree|read_write|X7yZ9aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVwXyZ0123456789aBcDeFgHiJkLmNoPqRsTuVw
+  callbacks:
+    tfVerificationStatus:
+      your_url.com/webhookService:
+        post:
+          summary: TFV status updates sent to customer's webhook URL.
+          description: >-
+            Unique webhook URL provided by customers to which Bandwidth sends a
+            POST request to notify customer regarding TFV status updates.
+          operationId: tfvRequest
+          parameters:
+            - description: >-
+                64-character lowercase hexidecimal HMAC calculated with a shared
+                secret key, the canonicalized request body, and SHA256. It is
+                only included when a shared secret key is set through webhook
+                subscription.
+              example: ca7b9e9816c90d336f5dca529e733354b81535c7af027b81878ac98afb2dbaa2
+              in: header
+              name: x-bandwidth-signature-hmac-sha256
+              schema:
+                type: string
+          requestBody:
+            $ref: '#/components/requestBodies/verificationWebhookRequest'
+          responses:
+            '204':
+              $ref: '#/components/responses/noContentResponse'
+            '400':
+              $ref: '#/components/responses/tfvBadRequestResponse'
+            '401':
+              $ref: '#/components/responses/tfvUnauthorizedResponse'
+            '403':
+              $ref: '#/components/responses/tfvForbiddenResponse'
+            '404':
+              $ref: '#/components/responses/tfvNotFoundResponse'
+            '405':
+              $ref: '#/components/responses/tfvNotAllowedResponse'
+            '429':
+              $ref: '#/components/responses/tfvTooManyRequestsResponse'
+            '500':
+              $ref: '#/components/responses/tfvServerErrorResponse'
+            '503':
+              $ref: '#/components/responses/tfvServiceUnavailableResponse'
+  securitySchemes:
+    Basic:
+      type: http
+      scheme: basic
+      description: >-
+        Basic authentication is a simple authentication scheme built into the
+        HTTP protocol. To use it, send your HTTP requests with an
+        `Authorization` header that contains the word `Basic` followed by a
+        space and a Base64-encoded string `username:password`.
+
+
+        - Example: `Authorization: Basic ZGVtbZpwQDU1dzByZA==`
+    OAuth2:
+      type: oauth2
+      description: >-
+        OAuth2 client credentials. For information on obtaining credentials, see
+        [Credentials
+        Management](https://dev.bandwidth.com/docs/account/credentials/management/).
+      flows:
+        clientCredentials:
+          tokenUrl: https://api.bandwidth.com/api/v1/oauth2/token
+          scopes: {}

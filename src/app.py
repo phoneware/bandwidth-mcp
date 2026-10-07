@@ -19,6 +19,8 @@ from tools.numbers import register_numbers_tools
 from tools.cnam import register_cnam_tools
 from tools.tnoptions import register_tnoptions_tools
 from tools.reports import register_reports_tools
+from tools.call_history import register_call_history_tools
+from tools.meta import register_meta_tools
 from instructions import build_instructions
 from event_store import EventStore
 from callbacks import register_callback_routes
@@ -67,7 +69,8 @@ async def lifespan(mcp_instance: FastMCP):
     register_cnam_tools(mcp_instance, _config)
     register_tnoptions_tools(mcp_instance, _config)
     register_reports_tools(mcp_instance, _config)
-
+    register_call_history_tools(mcp_instance, _config)
+    register_meta_tools(mcp_instance, _config)
     # Uniform tool gating: the enabled/excluded config (BW_MCP_TOOLS /
     # BW_MCP_PROFILE / BW_MCP_EXCLUDE_TOOLS) pre-filters OpenAPI-derived
     # tools via the route map, but hand-written registrations above ignore

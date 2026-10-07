@@ -63,9 +63,25 @@ The Numbers spec is intentionally NOT loaded here (it is XML; `from_openapi`
 sends JSON). Numbers live as hand-written tools instead. `insights` excludes
 `listCalls`/`listCall` because they collide with the voice spec.
 
-### Hand-written (`tools/`)
-See `src/tools/CLAUDE.md`.
+### Hand-written and curated (`tools/`)
+See `src/tools/CLAUDE.md`. Curated tools cover numbers, CNAM, call forwarding,
+reports, and call history (`getCallDetailRecords`, `searchVoiceCalls`, `getVoiceCall`).
 
+### Unified API Registry & Escape Hatch (`registry.py`, `xml_adapter.py`, `tools/meta.py`)
+All eight Bandwidth OpenAPI specs are vendored under `src/specs/`. `registry.py`
+builds an in-memory index of all 430+ operations with namespaced IDs
+(`insights.listCalls` vs `voice.listCalls`), stripping raw SIP credential
+operations.
+- `search_api`: Ranked keyword search across every operation in the registry.
+- `call_api`: Invokes any operation in the registry. Non-read-only writes require
+  `confirm='CONFIRM'`. Destructive writes trigger in-band MCP elicitation.
+- Numbers operations route through `xml_adapter.py` (spec-driven JSON to XML).
+- JSON operations route directly to Bandwidth via `httpx` with bearer auth.
+
+### Per-User Tool Promotion (`promotion.py`)
+Operations invoked repeatedly through `call_api` cross the promotion threshold
+(default: 3 calls in 14 days) and are dynamically promoted into the user's exposed
+tool list. Backed by Firestore (`mcp_tool_usage`) on Cloud Run and in-memory in tests.
 ## Config + profiles (`config.py`, `profiles.py`)
 `profiles.py` cherrypicks operationIds into named presets rather than loading
 whole specs (430+ tools). `DEFAULT_TOOLS` = voice + messaging + lookup +

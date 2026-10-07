@@ -51,7 +51,15 @@ requests against `{api_base}/api/v2/accounts/{accountId}/…`, parsed back to JS
   call state so BXML can be queued before the answer callback lands).
 - **`callbacks.py`**: `getInboundMessages`, `getCallbackEvents` (read the event
   store), and `configureCallbacks` (point an app's webhooks at this server).
-
+- **`call_history.py`**: curated call history tools over Bandwidth Insights:
+  `getCallDetailRecords` (asynchronous Insights CDR reporting, polling, zip
+  extraction, and number/window filtering), `searchVoiceCalls` (real-time voice
+  call search with latency, jitter, packet loss, and MOS scores), and
+  `getVoiceCall`.
+- **`meta.py`**: API discovery and escape-hatch execution across the 430+ operations
+  in the unified registry: `search_api` (ranked keyword search) and `call_api`
+  (invoke any operation by name). All writes require confirm='CONFIRM', and
+  destructive calls trigger in-band MCP elicitation.
 ## Patterns to follow
 - **Read/write annotations.** Every tool passes `ToolAnnotations`
   (`_READ` / `_WRITE` / `_DESTRUCTIVE`) so MCP clients group it correctly.

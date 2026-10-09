@@ -1,15 +1,16 @@
 # `src/tools/`: hand-written tools
 
-Tools that the OpenAPI path can't produce. Each module exposes a
-`register_*_tools(mcp, config)` (or `(mcp, event_store, config)`) function called
-from `app.py`'s lifespan. Unlike the OpenAPI-derived tools, these register
-unconditionally, so `app.py` prunes them afterward to honor the env filter.
+Curated tools add workflow logic, validation, pagination, or shaped responses
+on top of the vendor API. Each module exposes a `register_*_tools(mcp, config)`
+function called from `app.py`'s lifespan. Registrations are pruned afterward
+to honor the selected profile and exclusions.
 
 ## Why these exist
-Most of Phoneware's value is here. Bandwidth's **Numbers / Dashboard API is
-XML**, and `FastMCP.from_openapi` sends JSON, so the carrier-reseller surface
-(porting, inventory, sites, reports) has to be hand-written: authenticated XML
-requests against `{api_base}/api/v2/accounts/{accountId}/…`, parsed back to JSON.
+The vendored specifications feed `src/registry.py`; `search_api` and `call_api`
+reach operations outside the curated catalog. `src/xml_adapter.py` handles the
+Numbers/Dashboard API's XML, JSON, and binary media types from those schemas.
+Add a hand-written tool when it contributes workflow behavior, rather than
+because an endpoint speaks XML.
 
 ## Modules
 - **`credentials.py`**: `setCredentials` (stdio only; takes client id/secret and
@@ -58,8 +59,9 @@ requests against `{api_base}/api/v2/accounts/{accountId}/…`, parsed back to JS
   `getVoiceCall`.
 - **`meta.py`**: API discovery and escape-hatch execution across the 430+ operations
   in the unified registry: `search_api` (ranked keyword search) and `call_api`
-  (invoke any operation by name). All writes require confirm='CONFIRM', and
-  destructive calls trigger in-band MCP elicitation.
+  (invoke any operation by name). Writes require the per-operation token from
+  `src/safety.py`, such as `CREATESITE` for `numbers.CreateSite`. Destructive
+  calls also require MCP elicitation, with the requesting context forwarded.
 ## Patterns to follow
 - **Read/write annotations.** Every tool passes `ToolAnnotations`
   (`_READ` / `_WRITE` / `_DESTRUCTIVE`) so MCP clients group it correctly.
@@ -80,5 +82,7 @@ requests against `{api_base}/api/v2/accounts/{accountId}/…`, parsed back to JS
   them.
 - **Confirm before carrier writes.** `orderPhoneNumbers`, `disconnect...`, and
   the port-in writes are real, billable, sometimes irreversible carrier actions.
-  The tool docstrings tell the agent to confirm exact numbers with the user
-  first; keep that guidance when adding more.
+  Use `check_confirmation` with the tool name; the refusal returns the required
+  token. Disconnects, deletes, and cancellations also call
+  `elicit_destructive_confirmation`, which refuses unsupported clients by
+  default. Keep the same gates on curated, registry, and promoted tools.

@@ -21,8 +21,21 @@ def test_dict_to_xml_basic():
     assert el.attrib.get("id") == "123"
     xml_str = tostring(el, encoding="unicode")
     assert "<Name>Main Site</Name>" in xml_str
-    assert "<Active>True</Active>" in xml_str
+    assert "<Active>true</Active>" in xml_str
     assert "<Count>5</Count>" in xml_str
+
+
+def test_dict_to_xml_boolean_values_use_xml_lexical_form():
+    el = dict_to_xml("LnpOrderSupp", {
+        "@enabled": True,
+        "PartialPort": False,
+        "Subscriber": {"ServiceAddress": {"ResetAddressFields": True}},
+        "Flags": [True, False],
+    })
+    assert el.attrib["enabled"] == "true"
+    assert el.findtext("PartialPort") == "false"
+    assert el.findtext("Subscriber/ServiceAddress/ResetAddressFields") == "true"
+    assert [child.text for child in el.find("Flags")] == ["true", "false"]
 
 
 def test_dict_to_xml_nested():

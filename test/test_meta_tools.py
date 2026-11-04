@@ -65,6 +65,63 @@ async def test_search_api_tool():
     names = [m["name"] for m in matches]
     assert "numbers.ListSites" in names
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("name,token", [
+    ("numbers.CreatePortin", "CREATEPORTIN"),
+    ("numbers.UpdatePortin", "UPDATEPORTIN"),
+])
+async def test_search_discloses_complete_portin_schemas(name, token):
+    from registry import get_registry
+
+    mcp = FastMCP("test")
+    register_meta_tools(mcp, {})
+    plain = (await mcp.call_tool("search_api", {"query": name})).structured_content["matches"][0]
+    detailed = (await mcp.call_tool("search_api", {
+        "query": name, "include_schema": True,
+    })).structured_content["matches"][0]
+    assert all(detailed[key] == value for key, value in plain.items())
+    assert "request_body_schema" not in plain
+    assert detailed["confirm_token"] == token
+    assert detailed["request_body_content_type"] == "application/xml"
+    assert any(p["name"] == "accountId" and p["required"] for p in detailed["parameters"])
+    if name.endswith("UpdatePortin"):
+        assert any(p["name"] == "orderId" and p["location"] == "path" for p in detailed["parameters"])
+
+    op = get_registry().get_operation(name)
+    disclosed = detailed["request_body_schema"]
+    assert {k: v for k, v in disclosed.items() if k != "components"} == op.disclosure_body_schema
+    assert "oneOf" in disclosed
+    source = get_registry()._specs_data[op.spec_name]
+    seen = set()
+    pending = [disclosed]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(node)
+        elif isinstance(node, dict):
+            if "$ref" in node:
+                ref = node["$ref"]
+                if ref not in seen:
+                    seen.add(ref)
+                    actual, expected = disclosed, source
+                    for part in ref[2:].split("/"):
+                        part = part.replace("~1", "/").replace("~0", "~")
+                        actual, expected = actual[part], expected[part]
+                    assert actual == expected
+                    pending.append(actual)
+            pending.extend(value for key, value in node.items() if key not in ("$ref", "components"))
+    assert seen
+    assert "WirelessInfo" in str(disclosed)
+    assert "ServiceAddress" in str(disclosed)
+
+
+@pytest.mark.parametrize("limit", [-1, 0, 51])
+def test_registry_search_rejects_invalid_limits(limit):
+    from registry import get_registry
+
+    with pytest.raises(ValueError, match="limit"):
+        get_registry().search("port", limit=limit)
+
 
 @pytest.mark.asyncio
 async def test_call_api_unknown_tool():

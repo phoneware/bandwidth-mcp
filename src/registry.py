@@ -17,6 +17,7 @@ infrastructure management operations are stripped at generation time.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -88,6 +89,7 @@ class ParameterDef:
     type: Optional[str]
     description: Optional[str]
     schema: Optional[Dict[str, Any]] = None
+    disclosure_schema: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -103,6 +105,7 @@ class RegistryOperation:
     parameters: List[ParameterDef] = field(default_factory=list)
     request_body_schema: Optional[Dict[str, Any]] = None
     request_body_content_type: str = "application/json"
+    disclosure_body_schema: Optional[Dict[str, Any]] = None
     responses: Dict[str, Any] = field(default_factory=dict)
     tags: List[str] = field(default_factory=list)
     is_write: bool = False
@@ -165,6 +168,36 @@ def _resolve_schema(
     if "allOf" in out and isinstance(out["allOf"], list):
         out["allOf"] = [_resolve_schema(s, root_spec, depth + 1) for s in out["allOf"]]
     return out
+
+def _disclosure_schema(schema: Optional[Dict[str, Any]], root: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Copy a schema and its reachable local references without depth truncation."""
+    if schema is None:
+        return None
+    result = deepcopy(schema)
+    pending = [result]
+    seen: set[str] = set()
+    while pending:
+        node = pending.pop()
+        if isinstance(node, list):
+            pending.extend(node)
+        elif isinstance(node, dict):
+            ref = node.get("$ref")
+            if ref and ref not in seen:
+                if not isinstance(ref, str) or not ref.startswith("#/components/"):
+                    raise ValueError(f"Unsupported schema reference: {ref!r}")
+                seen.add(ref)
+                parts = [part.replace("~1", "/").replace("~0", "~") for part in ref[2:].split("/")]
+                target: Any = root
+                for part in parts:
+                    target = target[part]
+                target = deepcopy(target)
+                destination = result
+                for part in parts[:-1]:
+                    destination = destination.setdefault(part, {})
+                destination[parts[-1]] = target
+                pending.append(target)
+            pending.extend(value for key, value in node.items() if key != "$ref")
+    return result
 
 
 def _resolve_server_url(spec_name: str, servers: List[Dict[str, Any]]) -> str:
@@ -278,11 +311,13 @@ class ApiRegistry:
                             type=ptype,
                             description=p.get("description"),
                             schema=pschema,
+                            disclosure_schema=p.get("schema"),
                         )
                     )
 
                 # Request body schema
                 rb_schema: Optional[Dict[str, Any]] = None
+                raw_schema: Optional[Dict[str, Any]] = None
                 rb_content_type = (
                     "application/xml" if spec_name == "numbers" else "application/json"
                 )
@@ -334,6 +369,7 @@ class ApiRegistry:
                     parameters=combined_params,
                     request_body_schema=rb_schema,
                     request_body_content_type=rb_content_type,
+                    disclosure_body_schema=raw_schema,
                     responses=op.get("responses", {}),
                     tags=op.get("tags", []),
                     is_write=is_write,
@@ -393,12 +429,14 @@ class ApiRegistry:
 
         return None
 
-    def search(self, query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    def search(self, query: str, limit: int = 15, include_schema: bool = False) -> List[Dict[str, Any]]:
         """Search operations across all specs by keyword.
 
         Matches on namespaced name, bare name, path, summary, and description.
         Ranked by relevance score.
         """
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 50:
+            raise ValueError("limit must be between 1 and 50")
         self.load()
         q = query.strip().lower()
         if not q:
@@ -446,6 +484,24 @@ class ApiRegistry:
                     "spec": op.spec_name,
                 }
             )
+            if include_schema:
+                from safety import confirm_token_for
+
+                root = self._specs_data[op.spec_name]
+                results[-1].update({
+                    "parameters": [
+                        {
+                            "name": param.name,
+                            "location": param.location,
+                            "required": param.required,
+                            "schema": _disclosure_schema(param.disclosure_schema, root),
+                        }
+                        for param in op.parameters
+                    ],
+                    "request_body_content_type": op.request_body_content_type,
+                    "request_body_schema": _disclosure_schema(op.disclosure_body_schema, root),
+                    "confirm_token": confirm_token_for(op.name) if op.is_write else None,
+                })
         return results
 
     @property

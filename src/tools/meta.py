@@ -3,7 +3,7 @@
 Provides:
   - search_api: Keyword search over all 430+ operations across vendored specs.
   - call_api: Invoke any operation in the registry with uniform gating:
-      * Every write operation requires a confirm token (confirm='CONFIRM').
+      * Every write operation requires its operation-specific confirm token.
       * Destructive operations (disconnect, delete, cancel) additionally require
         in-band MCP elicitation, failing closed when the client lacks support.
       * Numbers operations route through the spec-driven XML adapter.
@@ -232,12 +232,14 @@ def register_meta_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
             "Search the full Bandwidth API registry across all vendored specs (numbers, voice, "
             "messaging, insights, lookup, end-user-management, toll-free-verification, multi-factor-auth). "
             "Returns matching tool names, descriptions, and HTTP methods. "
-            "Use this when curated tools do not cover what you need, then invoke the discovered tool with call_api."
+            "Set include_schema=true for complete vendor parameter and request-body schemas and confirmation tokens. "
+            "For port-ins, search numbers.CreatePortin or numbers.UpdatePortin. "
+            "Then invoke the discovered tool with call_api."
         ),
         annotations=_READ,
     )
-    async def search_api(query: str, limit: int = 15) -> Dict[str, Any]:
-        matches = reg.search(query, limit=limit)
+    async def search_api(query: str, limit: int = 15, include_schema: bool = False) -> Dict[str, Any]:
+        matches = reg.search(query, limit=limit, include_schema=include_schema)
         return {
             "query": query,
             "total_matches": len(matches),
@@ -248,9 +250,12 @@ def register_meta_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
         name="call_api",
         title="Call API Operation",
         description=(
-            "Invoke any operation from the full Bandwidth API registry by name. Use after search_api "
-            "discovers a tool not included in the curated set. Every write operation requires confirm='CONFIRM'. "
-            "Destructive operations (disconnect, delete, cancel) additionally require MCP elicitation confirmation."
+            "Invoke a discovered operation using flat args: path and query parameters alongside the vendor "
+            "request body's top-level properties. accountId may come from connector account context. "
+            "For example, numbers.UpdatePortin uses args={'orderId': '...', 'LnpOrderSupp': {...}, "
+            "'confirm': 'UPDATEPORTIN'}; numbers.CreatePortin requires confirm='CREATEPORTIN'. "
+            "Vendor PUTs can replace omitted fields: read the existing order and preserve unchanged values. "
+            "Every write requires its operation-specific confirm token; destructive operations also require elicitation."
         ),
         annotations=_WRITE,
     )

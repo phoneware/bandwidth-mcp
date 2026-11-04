@@ -103,9 +103,9 @@ async def upload_port_in_document(
         raise UploadError(
             "The upload tool reported an error. Inspect the order's document list before retrying."
         )
-    if not isinstance(result.data, dict):
+    if not isinstance(result.data, dict) or result.data.get("error"):
         raise UploadError(
-            "Upload returned an unrecognized result. Inspect the order's document list before retrying."
+            "Upload did not return a confirmed success. Inspect the order's document list before retrying."
         )
     return result.data
 

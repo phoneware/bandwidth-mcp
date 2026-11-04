@@ -35,7 +35,7 @@ Everything below is Phoneware's delta on top of upstream. This is "the changes".
 | Spec-driven XML adapter | none | generic schema-driven XML request/response adapter (`src/xml_adapter.py`) so every Numbers operation is callable |
 | Billing & Call History | none | async usage/billing reports (`src/tools/reports.py`), async CDR report generation (`getCallDetailRecords`), real-time call search with MOS and quality metrics (`searchVoiceCalls`, `getVoiceCall`) |
 | API Registry & Discovery | upstream loads only OpenAPI subset | full vendored registry across 8 specs (430+ operations) with namespaced IDs (`insights.listCalls` vs `voice.listCalls`), `search_api`, and `call_api` |
-| Safety Gates | none | all writes require confirm='CONFIRM'; destructive writes trigger in-band MCP elicitation |
+| Safety Gates | none | each write requires its operation-specific confirmation token; destructive writes trigger in-band MCP elicitation |
 | Tool Promotion | none | operations called repeatedly via `call_api` are promoted into the user's tool list (Firestore-backed on Cloud Run) |
 | Accounts | first account only | multi-account: one client ID, `account_id` per tool, validated against the token claims |
 | Client UX | tools ungrouped ("Other") | read/write `ToolAnnotations` and `title` so clients group tools |
@@ -66,6 +66,29 @@ The profiles themselves live in [`src/profiles.py`](src/profiles.py):
 `listAccounts`, `search_api`, and `call_api` are always available across all profiles.
 Detailed coverage report across all 442 operations is published in [`docs/api-coverage.html`](docs/api-coverage.html).
 See [`src/specs/AGENTS.md`](src/specs/AGENTS.md) for argument-level tool docs.
+
+### Port-in documents and discovery
+
+For a signed LOA on the operator's machine, install the project dependencies and
+run the local helper. It reads and encodes the file locally, checks its digest
+on the server, and uploads it to the existing order without transcribing the
+document through a model:
+
+```sh
+python scripts/upload_portin_loa.py --order-id ORDER_ID --file /path/to/loa.pdf --confirm UPLOADPORTINLOA
+```
+
+Sign in using the authorization URL the helper prints. Check the order's
+document list afterward. If the upload outcome is unknown, inspect the existing
+order before retrying. The helper requires a local Python environment and access
+to the document; a hosted server cannot read a path on the operator's machine.
+
+Use `search_api(query="numbers.CreatePortin", include_schema=true)` or
+`search_api(query="numbers.UpdatePortin", include_schema=true)` to inspect
+vendor request schemas and operation-specific confirmation tokens. Vendor
+supplement PUTs can remove omitted fields; read the order and preserve unchanged
+values. Curated supplements preserve writable fields for orders identified as
+`INTERNAL`; other variants retain the existing limited supplement behavior.
 
 ## Connecting
 

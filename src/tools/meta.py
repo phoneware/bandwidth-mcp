@@ -252,8 +252,8 @@ def register_meta_tools(mcp: FastMCP, config: Dict[str, Any]) -> None:
         description=(
             "Invoke a discovered operation using flat args: path and query parameters alongside the vendor "
             "request body's top-level properties. accountId may come from connector account context. "
-            "For example, numbers.UpdatePortin uses args={'orderId': '...', 'LnpOrderSupp': {...}, "
-            "'confirm': 'UPDATEPORTIN'}; numbers.CreatePortin requires confirm='CREATEPORTIN'. "
+            "For numbers.UpdatePortin, put orderId and the writable fields directly in args, "
+            "with confirm='UPDATEPORTIN'; numbers.CreatePortin requires confirm='CREATEPORTIN'. "
             "Vendor PUTs can replace omitted fields: read the existing order and preserve unchanged values. "
             "Every write requires its operation-specific confirm token; destructive operations also require elicitation."
         ),

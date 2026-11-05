@@ -53,11 +53,20 @@ import src.tools.numbers as numbers_mod
 from src.tools.numbers import register_numbers_tools
 
 
+def _matching_carriers(body):
+    """A portability response attributing every requested TN to one SPID."""
+    return {"NumberPortabilityResponse": {"SupportedLosingCarriers": {
+        "LosingCarrierTnList": {"LosingCarrierSPID": "001A", "TnList": {
+            "Tn": [node.text for node in body.findall("./TnList/Tn")]}}}}}
+
+
 @pytest.mark.asyncio
 async def test_write_tools_build_correct_escaped_xml(monkeypatch):
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["method"], sent["path"] = method, path
         sent["xml"] = tostring(body, encoding="unicode") if body is not None else None
         return {"httpStatus": 201, "id": "order-1"}
@@ -238,11 +247,8 @@ def test_port_in_validates_formats():
 
 
 def test_port_in_partial_port_rules():
-    # the BTN is itself porting, so the remainder needs a replacement BTN
-    assert any(
-        "new_billing_telephone_number" in p
-        for p in _problems(numbers=["9195550000", "9195550001"], partial_port=True)
-    )
+    # A partial port may include the BTN without specifying a replacement.
+    assert _problems(numbers=["9195550000", "9195550001"], partial_port=True) == []
     # the new BTN cannot be one of the numbers leaving
     assert any(
         "staying with the losing carrier" in p
@@ -318,6 +324,8 @@ async def test_create_port_in_emits_partial_port_pair(monkeypatch):
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -351,6 +359,8 @@ async def test_partial_port_omits_new_btn_when_the_btn_is_not_porting(monkeypatc
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -396,6 +406,8 @@ async def test_account_number_and_pin_go_inside_wirelessinfo(monkeypatch):
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -425,6 +437,8 @@ async def test_wirelessinfo_omitted_when_neither_is_known(monkeypatch):
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -450,6 +464,8 @@ async def test_create_port_in_sends_address_line_2_between_street_and_city(monke
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -479,6 +495,8 @@ async def test_create_port_in_sends_every_number_in_e164(monkeypatch):
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -553,7 +571,7 @@ async def test_other_endpoints_still_send_bare_ten_digits(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_upload_port_in_loa_posts_binary_then_tags_document_type(monkeypatch):
+async def test_upload_port_in_loa_posts_binary_with_document_type(monkeypatch):
     import base64
 
     uploads = []
@@ -581,25 +599,21 @@ async def test_upload_port_in_loa_posts_binary_then_tags_document_type(monkeypat
         })
 
     path, content, content_type = uploads[0]
-    assert path == "portins/ord-9/loas"
+    assert path == "portins/ord-9/loas?documentType=LOA"
     assert content == b"%PDF-1.7 signed"
     assert content_type == "application/pdf"
-    method, meta_path, meta_xml = sends[0]
-    assert method == "PUT"
-    assert meta_path == "portins/ord-9/loas/stored-1.pdf/metadata"
-    assert "<DocumentType>LOA</DocumentType>" in meta_xml
+    assert sends == []
     assert result.data["filename"] == "stored-1.pdf"
 
 
 @pytest.mark.asyncio
-async def test_upload_port_in_loa_reports_metadata_failure_without_losing_the_file(
-    monkeypatch,
-):
-    """The file is already stored by then — surface the problem, don't raise."""
+async def test_upload_port_in_loa_timeout_requires_inspection_before_retry(monkeypatch):
+    """A timeout after dispatch leaves the upload outcome unknown."""
     import base64
+    import httpx
 
     async def fake_upload(config, path, content, content_type, account_id=""):
-        return {"httpStatus": 201, "FileUploadResponse": {"filename": "stored-1.pdf"}}
+        raise httpx.ReadTimeout("timed out")
 
     async def fake_send(config, method, path, body, account_id=""):
         raise RuntimeError("Bandwidth rejected the request (400): bad metadata")
@@ -610,14 +624,13 @@ async def test_upload_port_in_loa_reports_metadata_failure_without_losing_the_fi
     register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
 
     async with Client(mcp) as client:
-        result = await client.call_tool("uploadPortInLoa", {
-            "order_id": "ord-9",
-            "file_base64": base64.b64encode(b"pdf").decode(),
-            "filename": "loa.pdf",
-            "confirm": "UPLOADPORTINLOA",
-        })
-    assert "bad metadata" in result.data["metadataError"]
-    assert result.data["filename"] == "stored-1.pdf"
+        with pytest.raises(Exception, match="Inspect the order document list before retrying"):
+            await client.call_tool("uploadPortInLoa", {
+                "order_id": "ord-9",
+                "file_base64": base64.b64encode(b"pdf").decode(),
+                "filename": "loa.pdf",
+                "confirm": "UPLOADPORTINLOA",
+            })
 
 
 @pytest.mark.asyncio
@@ -636,11 +649,11 @@ async def test_upload_port_in_loa_rejects_bad_input(monkeypatch):
 
     good = base64.b64encode(b"pdf").decode()
     async with Client(mcp) as client:
-        with pytest.raises(Exception, match="document_type"):
+        with pytest.raises(Exception, match="Unsupported document type"):
             await client.call_tool("uploadPortInLoa", {
                 "order_id": "o", "file_base64": good, "filename": "a.pdf",
                 "document_type": "CONTRACT", "confirm": "UPLOADPORTINLOA"})
-        with pytest.raises(Exception, match="content_type"):
+        with pytest.raises(Exception, match="Unsupported document MIME type"):
             await client.call_tool("uploadPortInLoa", {
                 "order_id": "o", "file_base64": good, "filename": "loa.docx", "confirm": "UPLOADPORTINLOA"})
         with pytest.raises(Exception, match="base64"):
@@ -726,6 +739,8 @@ async def test_create_port_in_date_only_xml_unchanged_serialized(monkeypatch):
     sent = {}
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -776,6 +791,8 @@ async def test_create_port_in_triggered_xml_offsets_july_and_january(monkeypatch
     sent = []
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent.append(tostring(body, encoding="unicode"))
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -829,6 +846,8 @@ async def test_create_port_in_site_name_resolution(monkeypatch):
         return "<xml/>"
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent["xml"] = tostring(body, encoding="unicode")
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -939,6 +958,8 @@ async def test_create_port_in_order_id_defaults(monkeypatch):
     sent = []
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent.append(tostring(body, encoding="unicode"))
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -991,6 +1012,8 @@ async def test_create_port_in_order_id_sanitization(monkeypatch):
     sent = []
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         sent.append(tostring(body, encoding="unicode"))
         return {"httpStatus": 201, "id": "order-1"}
 
@@ -1040,6 +1063,8 @@ async def test_create_port_in_attach_failure_preserves_order_id(monkeypatch):
     import base64
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         return {"httpStatus": 201, "id": "order-987"}
 
     async def fake_upload(config, path, content, content_type, account_id=""):
@@ -1069,7 +1094,8 @@ async def test_create_port_in_attach_failure_preserves_order_id(monkeypatch):
         == "https://app.bandwidth.com/a/5011369/orders/portIn/order-987"
     )
     assert "loa_error" in data
-    assert "uploadPortInLoa" in data["loa_error"]
+    assert "Inspect the existing order" in data["loa_error"]
+    assert "do not recreate" in data["loa_error"]
 
 
 @pytest.mark.asyncio
@@ -1078,6 +1104,8 @@ async def test_create_port_in_with_successful_loa_upload(monkeypatch):
     import base64
 
     async def fake_send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return _matching_carriers(body)
         if method == "POST" and path == "portins":
             return {"httpStatus": 201, "id": "order-456"}
         if method == "PUT" and "metadata" in path:
@@ -1174,3 +1202,177 @@ async def test_supplement_port_in_order_with_time(monkeypatch):
                     "confirm": "SUPPLEMENTPORTINORDER",
                 },
             )
+
+
+@pytest.mark.asyncio
+async def test_carrier_preflight_mismatch_and_acknowledgement(monkeypatch):
+    calls = []
+    async def lookup(config, method, path, body, account_id=""):
+        calls.append(path)
+        tn = body.findtext("./TnList/Tn")
+        spid = "001A" if tn.endswith("0000") else "002B"
+        return {"NumberPortabilityResponse": {"SupportedLosingCarriers": {
+            "LosingCarrierTnList": {"LosingCarrierSPID": spid, "TnList": {"Tn": tn}}}}}
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", lookup)
+    warnings, preflight, refusal = await numbers_mod.port_in_advisories(
+        {}, ["9195550000"], "9195550001", " 12 ")
+    assert preflight["status"] == "mismatch"
+    assert {w["code"] for w in warnings} == {"BTN_CARRIER_MISMATCH", "SHORT_PIN"}
+    assert refusal["submitted"] is False
+    assert len(calls) == 2 and all("offnetportability" in p for p in calls)
+    _, _, refusal = await numbers_mod.port_in_advisories(
+        {}, ["9195550000"], "9195550001", "12",
+        acknowledge_warnings=["BTN_CARRIER_MISMATCH", "SHORT_PIN"])
+    assert refusal is None
+
+
+@pytest.mark.asyncio
+async def test_unknown_carrier_is_not_a_match(monkeypatch):
+    async def lookup(*args, **kwargs):
+        return {"NumberPortabilityResponse": {}}
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", lookup)
+    _, preflight, refusal = await numbers_mod.port_in_advisories({}, ["9195550000"], "9195550000")
+    assert preflight["status"] == "unknown"
+    assert refusal["required_acknowledgements"] == ["CARRIER_LOOKUP_UNAVAILABLE"]
+
+
+def test_document_digest_and_partial_btn_validation():
+    import base64
+    import hashlib
+    content = b"\x00\xffdocument"
+    encoded = base64.b64encode(content).decode()
+    decoded, mime, _ = numbers_mod._validate_document(
+        encoded, "loa.pdf", file_sha256=hashlib.sha256(content).hexdigest())
+    assert decoded == content and mime == "application/pdf"
+    with pytest.raises(ValueError, match="SHA-256"):
+        numbers_mod._validate_document(encoded, "loa.pdf", file_sha256="0" * 64)
+    with pytest.raises(ValueError):
+        numbers_mod._validate_document("not base64!", "loa.pdf")
+    with pytest.raises(ValueError):
+        numbers_mod.validate_porting_strings(123, "0012")
+    assert numbers_mod.validate_porting_strings(" 001 ", " 0012 ") == ("001", "0012")
+    assert not any("new_billing_telephone_number" in p for p in _problems(partial_port=True))
+
+
+@pytest.mark.asyncio
+async def test_supplement_refuses_before_mutation_when_variant_unknown(monkeypatch):
+    writes = []
+    async def get_order(*args, **kwargs):
+        return "<LnpOrderResponse><PortType>AUTOMATED</PortType></LnpOrderResponse>"
+    async def send(*args, **kwargs):
+        writes.append(args)
+        return {}
+    monkeypatch.setattr(numbers_mod, "_dashboard_get", get_order)
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+    async with Client(mcp) as client:
+        with pytest.raises(Exception, match="writable port variant"):
+            await client.call_tool("supplementPortInOrder", {
+                "order_id": "order-1", "pin": "0012", "confirm": "SUPPLEMENTPORTINORDER"})
+    assert writes == []
+
+
+@pytest.mark.asyncio
+async def test_partial_port_requires_warning_ack_before_create(monkeypatch):
+    writes = []
+    async def send(config, method, path, body, account_id=""):
+        if path.startswith("lnpchecker"):
+            return {}
+        writes.append((method, path, tostring(body, encoding="unicode")))
+        return {"id": "order-1"}
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+    args = {**_GOOD_PORT_IN, "partial_port": True, "pin": "01"}
+    async with Client(mcp) as client:
+        response = await client.call_tool("createPortInOrder", args)
+        assert response.data["submitted"] is False
+        assert set(response.data["required_acknowledgements"]) == {"CARRIER_LOOKUP_UNAVAILABLE", "SHORT_PIN"}
+        assert writes == []
+        args["acknowledge_warnings"] = ["CARRIER_LOOKUP_UNAVAILABLE", "SHORT_PIN"]
+        await client.call_tool("createPortInOrder", args)
+    assert len(writes) == 1 and writes[0][1] == "portins"
+    assert "<PartialPort>true</PartialPort>" in writes[0][2]
+    assert "<NewBillingTelephoneNumber>" not in writes[0][2]
+    assert "<PinNumber>01</PinNumber>" in writes[0][2]
+
+
+@pytest.mark.asyncio
+async def test_upload_uses_raw_bytes_and_initial_document_type(monkeypatch):
+    import base64
+    import hashlib
+    received = []
+    async def upload(config, path, content, mime, account_id=""):
+        received.append((path, content, mime))
+        return {"id": "file-1"}
+    monkeypatch.setattr(numbers_mod, "_dashboard_upload", upload)
+    content = b"\x00\xffdocument"
+    result = await numbers_mod._upload_port_in_document(
+        {"BW_ACCOUNT_ID": "1"}, "order-1", base64.b64encode(content).decode(),
+        "loa.pdf", file_sha256=hashlib.sha256(content).hexdigest())
+    assert result["filename"] == "file-1"
+    assert received == [("portins/order-1/loas?documentType=LOA", content, "application/pdf")]
+
+
+@pytest.mark.asyncio
+async def test_internal_supplement_preserves_writable_snapshot(monkeypatch):
+    xml = """<LnpOrderResponse><PortType>INTERNAL</PortType>
+      <ProcessingStatus>SUBMITTED</ProcessingStatus><OrderId>order-1</OrderId>
+      <CustomerOrderId>ticket-001</CustomerOrderId><SiteId>1</SiteId><PeerId>7</PeerId>
+      <BillingTelephoneNumber>9195550000</BillingTelephoneNumber>
+      <ListOfPhoneNumbers><PhoneNumber>9195550000</PhoneNumber></ListOfPhoneNumbers>
+      <Triggered>false</Triggered><WirelessInfo><AccountNumber>0009</AccountNumber>
+      <PinNumber>1234</PinNumber></WirelessInfo><Subscriber><SubscriberType>BUSINESS</SubscriberType>
+      <BusinessName>Acme</BusinessName><ServiceAddress><HouseNumber>1</HouseNumber>
+      <StreetName>Main</StreetName><AddressLine2>Suite 7</AddressLine2><City>Phoenix</City>
+      <StateCode>AZ</StateCode><Zip>85001</Zip></ServiceAddress></Subscriber>
+      <Tags><Tag><TagName>case</TagName><TagValue>42</TagValue></Tag></Tags></LnpOrderResponse>"""
+    sent = []
+    async def get_order(*args, **kwargs):
+        return xml
+    async def send(config, method, path, body, account_id=""):
+        if method == "PUT":
+            sent.append(body)
+        return {"httpStatus": 200}
+    monkeypatch.setattr(numbers_mod, "_dashboard_get", get_order)
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+    async with Client(mcp) as client:
+        result = await client.call_tool("supplementPortInOrder", {
+            "order_id": "order-1", "pin": "0012", "city": "Mesa",
+            "confirm": "SUPPLEMENTPORTINORDER",
+            "acknowledge_warnings": ["CARRIER_LOOKUP_UNAVAILABLE"]})
+    assert result.data["verification"] == "pending"
+    assert len(sent) == 1
+    body = sent[0]
+    assert body.findtext("CustomerOrderId") == "ticket-001"
+    assert body.findtext("WirelessInfo/AccountNumber") == "0009"
+    assert body.findtext("WirelessInfo/PinNumber") == "0012"
+    assert body.findtext("Subscriber/ServiceAddress/City") == "Mesa"
+    assert body.findtext("Subscriber/ServiceAddress/AddressLine2") == "Suite 7"
+    assert body.findtext("Tags/Tag/TagValue") == "42"
+    assert body.find("OrderId") is None and body.find("ProcessingStatus") is None
+    assert body.find("ListOfPhoneNumbers") is None
+
+
+@pytest.mark.asyncio
+async def test_internal_supplement_refuses_masked_unchanged_credential(monkeypatch):
+    async def get_order(*args, **kwargs):
+        return ("<LnpOrderResponse><PortType>INTERNAL</PortType><WirelessInfo>"
+                "<AccountNumber>****</AccountNumber><PinNumber>1234</PinNumber>"
+                "</WirelessInfo></LnpOrderResponse>")
+    writes = []
+    async def send(*args, **kwargs):
+        writes.append(args)
+        return {}
+    monkeypatch.setattr(numbers_mod, "_dashboard_get", get_order)
+    monkeypatch.setattr(numbers_mod, "_dashboard_send", send)
+    mcp = FastMCP("t")
+    register_numbers_tools(mcp, {"BW_ACCESS_TOKEN": "tok", "BW_ACCOUNT_ID": "1"})
+    async with Client(mcp) as client:
+        with pytest.raises(Exception, match="AccountNumber"):
+            await client.call_tool("supplementPortInOrder", {
+                "order_id": "order-1", "pin": "0012", "confirm": "SUPPLEMENTPORTINORDER"})
+    assert writes == []

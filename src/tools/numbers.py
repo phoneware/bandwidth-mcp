@@ -14,6 +14,9 @@ disconnects, port-in create/supp/cancel, LOA upload) register under
 """
 
 import base64
+import hashlib
+from copy import deepcopy
+from urllib.parse import quote
 import re
 from datetime import datetime, time
 from functools import lru_cache
@@ -172,9 +175,9 @@ async def _dashboard_upload(
     token = config.get("BW_ACCESS_TOKEN")
     if not token:
         raise RuntimeError("Not authenticated.")
-    account = _resolve_account(config, account_id)
+    account = _path_segment(_resolve_account(config, account_id))
     url = f"{dashboard_api_base()}/accounts/{account}/{path}"
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=False) as client:
         resp = await client.post(
             url,
             content=content,
@@ -184,6 +187,8 @@ async def _dashboard_upload(
                 "Accept": "application/xml",
             },
         )
+    if 300 <= resp.status_code < 400:
+        raise RuntimeError("Bandwidth returned an upload redirect; no redirect was followed.")
     return _write_result(resp)
 
 
@@ -213,6 +218,81 @@ def _tn_list(parent: Element, wrapper: str, tag: str, numbers: list, e164: bool 
     fmt = _e164_tn if e164 else _clean_tn
     for n in numbers:
         SubElement(lst, tag).text = fmt(n)
+def validate_porting_strings(account_number, pin):
+    """Trim credentials without coercing numbers or exposing their values."""
+    for name, value in (("account number", account_number), ("PIN", pin)):
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string.")
+    return account_number.strip(), pin.strip()
+
+
+def _carrier_assignments(payload):
+    assignments = {}
+    def visit(value):
+        if isinstance(value, list):
+            for item in value:
+                visit(item)
+        elif isinstance(value, dict):
+            if "LosingCarrierSPID" in value and "TnList" in value:
+                spid = value["LosingCarrierSPID"]
+                tns = value["TnList"]
+                tns = tns.get("Tn", []) if isinstance(tns, dict) else []
+                if not isinstance(tns, list):
+                    tns = [tns]
+                if isinstance(spid, str) and spid.strip():
+                    for tn in tns:
+                        key = _clean_tn(tn)
+                        assignments.setdefault(key, set()).add(spid.strip())
+            for item in value.values():
+                visit(item)
+    visit(payload)
+    return assignments
+
+
+async def _portability_request(config, numbers, account_id):
+    body = Element("NumberPortabilityRequest")
+    _tn_list(body, "TnList", "Tn", numbers, e164=True)
+    return await _dashboard_send(config, "POST", "lnpchecker?fullCheck=offnetportability", body, account_id)
+
+
+async def port_in_advisories(config, numbers, billing_telephone_number, pin="",
+                             account_id="", include_loa_warning=False,
+                             acknowledge_warnings=None):
+    """Return warnings, carrier comparison and a refusal if acknowledgement is missing."""
+    _, pin = validate_porting_strings("", pin)
+    warnings = []
+    preflight = {"status": "unknown", "source": "numbers.RequestPortabilityInfo"}
+    try:
+        normalized = [_clean_tn(n) for n in numbers]
+        btn = _clean_tn(billing_telephone_number)
+        if not normalized or not btn or any(len(n) != 10 for n in normalized) or len(btn) != 10:
+            raise ValueError("Missing telephone numbers for carrier comparison")
+        assignments = _carrier_assignments(await _portability_request(config, numbers, account_id))
+        if btn not in normalized:
+            for key, values in _carrier_assignments(await _portability_request(config, [billing_telephone_number], account_id)).items():
+                assignments.setdefault(key, set()).update(values)
+        if any(len(assignments.get(n, set())) != 1 for n in set(normalized + [btn])):
+            raise ValueError("Carrier attribution is incomplete or ambiguous")
+        btn_spid = next(iter(assignments[btn]))
+        mismatch = [n for n in normalized if next(iter(assignments[n])) != btn_spid]
+        preflight["status"] = "mismatch" if mismatch else "match"
+        if mismatch:
+            warnings.append({"code": "BTN_CARRIER_MISMATCH", "message": "The BTN and listed numbers have different losing-carrier SPIDs.", "numbers": mismatch})
+    except Exception:
+        warnings.append({"code": "CARRIER_LOOKUP_UNAVAILABLE", "message": "Losing-carrier attribution is unavailable or ambiguous."})
+    if pin and len(pin) < 4:
+        warnings.append({"code": "SHORT_PIN", "message": "The supplied PIN is shorter than four characters."})
+    if include_loa_warning:
+        warnings.append({"code": "LOA_NOT_ATTACHED", "message": "Filing before attaching a signed LOA may expose the order to rejection."})
+    acknowledged = set(acknowledge_warnings or [])
+    required = [w["code"] for w in warnings if w["code"] != "LOA_NOT_ATTACHED" and w["code"] not in acknowledged]
+    refusal = None
+    if required:
+        refusal = {"error": "PORT_IN_WARNINGS", "submitted": False, "requires_acknowledgement": True,
+                   "warnings": warnings, "required_acknowledgements": required, "carrier_preflight": preflight}
+    return warnings, preflight, refusal
+
+
 
 
 _ZIP_RE = re.compile(r"^\d{5}(-?\d{4})?$")
@@ -333,58 +413,71 @@ def _format_foc_date_time(foc_date: str, foc_time: str) -> tuple[str, bool]:
     return dt.strftime("%Y-%m-%dT%H:%M:00%z"), True
 
 
-async def _upload_port_in_document(
-    config: dict,
-    order_id: str,
-    file_base64: str,
-    filename: str,
-    document_type: str = "LOA",
-    content_type: str = "",
-    account_id: str = "",
-) -> dict:
-    """Upload an LNP document (LOA, invoice, CSR) onto a port-in order."""
+def _validate_document(file_base64, filename, document_type="LOA", content_type="", file_sha256=""):
     doc_type = document_type.strip().upper() or "LOA"
     if doc_type not in _DOCUMENT_TYPES:
-        raise ValueError(
-            f"document_type must be one of {', '.join(_DOCUMENT_TYPES)}, "
-            f"got {document_type!r}"
-        )
-    mime = content_type.strip()
-    if not mime:
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        mime = _UPLOAD_TYPES.get(ext, "")
-        if not mime:
-            raise ValueError(
-                f"Can't tell the file type from {filename!r}. Use a "
-                f"{'/'.join(sorted(_UPLOAD_TYPES))} extension or pass "
-                "content_type."
-            )
+        raise ValueError("Unsupported document type.")
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    mime = content_type.strip() or _UPLOAD_TYPES.get(ext, "")
+    if mime not in _UPLOAD_TYPES.values():
+        raise ValueError("Unsupported document MIME type.")
     try:
         content = base64.b64decode(file_base64, validate=True)
     except Exception as exc:
-        raise ValueError(f"file_base64 is not valid base64: {exc}") from exc
-    if not content:
-        raise ValueError("file_base64 decoded to an empty file.")
+        raise ValueError("Invalid base64 document.") from exc
+    if not content or len(content) > 3_000_000:
+        raise ValueError("Document must contain between 1 and 3000000 bytes.")
+    if file_sha256 and (not re.fullmatch(r"[0-9a-fA-F]{64}", file_sha256) or
+                        hashlib.sha256(content).hexdigest() != file_sha256.lower()):
+        raise ValueError("Document SHA-256 does not match.")
+    return content, mime, doc_type
 
-    uploaded = await _dashboard_upload(
-        config, f"portins/{order_id}/loas", content, mime, account_id
-    )
+
+def _path_segment(value):
+    if not isinstance(value, str) or not value or value in (".", "..") or "/" in value or "\\" in value:
+        raise ValueError("Invalid path identifier.")
+    return quote(value, safe="")
+
+
+async def _upload_port_in_document(config, order_id, file_base64, filename,
+                                   document_type="LOA", content_type="",
+                                   account_id="", file_sha256=""):
+    content, mime, doc_type = _validate_document(file_base64, filename, document_type, content_type, file_sha256)
+    order = _path_segment(order_id)
+    _path_segment(_resolve_account(config, account_id))
+    try:
+        uploaded = await _dashboard_upload(
+            config, f"portins/{order}/loas?documentType={quote(doc_type)}", content, mime, account_id
+        )
+    except httpx.TimeoutException as exc:
+        raise RuntimeError("Upload outcome unknown. Inspect the order document list before retrying.") from exc
     stored = uploaded.get("id") or _uploaded_filename(uploaded)
     if stored:
-        meta = Element("FileMetaData")
-        SubElement(meta, "DocumentType").text = doc_type
-        try:
-            uploaded["metadata"] = await _dashboard_send(
-                config,
-                "PUT",
-                f"portins/{order_id}/loas/{stored}/metadata",
-                meta,
-                account_id,
-            )
-        except RuntimeError as exc:
-            uploaded["metadataError"] = str(exc)
         uploaded["filename"] = stored
     return uploaded
+
+
+def _order_numbers(value):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key == "ListOfPhoneNumbers" and isinstance(item, dict):
+                found = item.get("PhoneNumber", [])
+                return found if isinstance(found, list) else [found]
+            found = _order_numbers(item)
+            if found:
+                return found
+    elif isinstance(value, list):
+        for item in value:
+            found = _order_numbers(item)
+            if found:
+                return found
+    return []
+
+
+def _validate_toll_free_loa(numbers, mime):
+    if any(_clean_tn(n)[:3] in {"800", "833", "844", "855", "866", "877", "888"} for n in numbers):
+        if mime not in ("application/pdf", "image/tiff"):
+            raise ValueError("Toll-free LOAs must be PDF or TIFF.")
 
 def _port_in_problems(
     numbers: list,
@@ -476,17 +569,8 @@ def _port_in_problems(
             )
     btn = _clean_tn(billing_telephone_number)
     new_btn = _clean_tn(new_billing_telephone_number)
-    # A replacement BTN is only meaningful when the BTN itself is porting: the
-    # remaining account has lost its billing number and needs another. When the
-    # BTN stays, it simply remains the BTN, and Bandwidth rejects being told
-    # otherwise ("NewBillingTelephoneNumber cannot be the same as the
-    # BillingTelephoneNumber", error 7497).
-    if partial_port and btn in ported and not new_btn:
-        problems.append(
-            "new_billing_telephone_number: required when the BTN itself is "
-            "porting: the TN that stays with the losing carrier and becomes "
-            "the BTN on what is left of that account"
-        )
+    # When provided, the replacement is a distinct number left behind on the
+    # losing account. A partial port can omit it even if the current BTN ports.
     if new_btn and not partial_port:
         problems.append(
             "partial_port: pass true when new_billing_telephone_number is set"
@@ -499,14 +583,12 @@ def _port_in_problems(
     if new_btn and new_btn == btn:
         problems.append(
             "new_billing_telephone_number must differ from "
-            "billing_telephone_number: the BTN is not porting, so it stays the "
-            "BTN. Leave new_billing_telephone_number empty."
+            "billing_telephone_number."
         )
     if btn and ported and not partial_port and btn not in ported:
         problems.append(
             f"billing_telephone_number {btn} is not in numbers: a full port has "
-            "to include the BTN. Either add it, or set partial_port=true and "
-            "give new_billing_telephone_number."
+            "to include the BTN. Either add it, or set partial_port=true."
         )
 
     return problems
@@ -687,7 +769,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
         return await _dashboard_json(config, f"portouts/{order_id}", account_id)
 
     @mcp.tool(name="checkPortability", annotations=_READ)
-    async def check_portability(numbers: list[str], account_id: str = "") -> dict:
+    async def check_portability(numbers: list[str], account_id: str = "", billing_telephone_number: str = "") -> dict:
         """Check whether numbers CAN port to Bandwidth, and whether they can
         port together on one order. Run this before createPortInOrder.
 
@@ -695,13 +777,11 @@ def register_numbers_tools(mcp, config: dict) -> None:
             numbers: Telephone numbers to check (10-digit).
             account_id: Optional account (see listAccounts).
         """
-        # lnpchecker is one of the two LNP endpoints requiring E.164 (see
-        # _e164_tn); the rest of the Dashboard API wants bare 10-digit.
-        body = Element("NumberPortabilityRequest")
-        _tn_list(body, "TnList", "Tn", numbers, e164=True)
-        return await _dashboard_send(
-            config, "POST", "lnpchecker?fullCheck=true", body, account_id
-        )
+        result = await _portability_request(config, numbers, account_id)
+        if billing_telephone_number:
+            _, preflight, _ = await port_in_advisories(config, numbers, billing_telephone_number, account_id=account_id)
+            result["carrier_preflight"] = preflight
+        return result
 
     # ── carrier writes (numbers-write profile) ──────────────────────────────
     # These are LIVE carrier operations: they buy, remove, and port real
@@ -797,6 +877,8 @@ def register_numbers_tools(mcp, config: dict) -> None:
         customer_order_id: str = "",
         loa_file_base64: str = "",
         loa_filename: str = "",
+        loa_sha256: str = "",
+        acknowledge_warnings: list[str] | None = None,
         confirm: str = "",
         account_id: str = "",
     ) -> dict:
@@ -810,9 +892,8 @@ def register_numbers_tools(mcp, config: dict) -> None:
         the user before calling; the tool refuses incomplete orders rather
         than firing a bad carrier write.
 
-        Porting only SOME of the numbers on the losing account is a partial
-        port: pass partial_port=true plus new_billing_telephone_number (a TN
-        that stays behind). A full port must include the BTN itself.
+        For a partial port pass partial_port=true. A replacement BTN is optional.
+        A full port must include the BTN.
 
         Activation time: pass requested_foc_time in 24h Eastern time (e.g.
         "20:00" for 8:00 PM ET) alongside requested_foc_date to schedule an
@@ -864,10 +945,8 @@ def register_numbers_tools(mcp, config: dict) -> None:
                 account number: get it if the carrier issues one.
             partial_port: True when only some of the losing account's numbers
                 are porting.
-            new_billing_telephone_number: Only when the BTN is itself porting:
-                the TN that stays with the losing carrier and becomes its new
-                BTN. Leave empty when the BTN is not in `numbers`: it stays
-                the BTN, and passing it here is rejected.
+            new_billing_telephone_number: Optional replacement BTN when a
+                different number remains as the losing account's BTN.
             customer_order_id: Optional reference of yours, echoed back on the
                 order (useful for tying a port to a customer ticket).
                 Alphanumeric, dashes and spaces only, max 255. Defaults to
@@ -876,12 +955,22 @@ def register_numbers_tools(mcp, config: dict) -> None:
             loa_file_base64: Optional base64-encoded LOA document (PDF, TIFF,
                 PNG, JPEG) to attach in the same call.
             loa_filename: Optional filename for the LOA (e.g. "acme-loa.pdf").
+            loa_sha256: Optional SHA-256 digest of the decoded document.
+            acknowledge_warnings: Warning codes explicitly reviewed with the user.
+                Carrier mismatch, unknown carrier, and short PIN warnings refuse
+                submission until acknowledged.
             confirm: Pass confirm='CREATEPORTINORDER' to authorize the port-in order.
             account_id: Optional account (see listAccounts).
         """
         conf_err = check_confirmation("createPortInOrder", confirm)
         if conf_err is not None:
             raise RuntimeError(conf_err["error"])
+        losing_carrier_account_number, pin = validate_porting_strings(losing_carrier_account_number, pin)
+        if loa_file_base64:
+            _, mime, _ = _validate_document(loa_file_base64, loa_filename or "loa.pdf", file_sha256=loa_sha256)
+            _validate_toll_free_loa(numbers, mime)
+        elif loa_sha256:
+            raise ValueError("loa_sha256 requires an inline LOA.")
 
         problems = _port_in_problems(
             numbers,
@@ -976,16 +1065,23 @@ def register_numbers_tools(mcp, config: dict) -> None:
         SubElement(body, "SiteId").text = resolved_site_id
         if peer_id:
             SubElement(body, "PeerId").text = peer_id
-        # Partial-port pair goes last, matching Bandwidth's documented example.
-        # NewBillingTelephoneNumber only rides along when the BTN is porting and
-        # the remainder needs a new one; sending it otherwise is a 7497.
+        # Include a replacement BTN only when the operator supplies one.
         if partial_port:
             SubElement(body, "PartialPort").text = "true"
             if _clean_tn(new_billing_telephone_number):
                 SubElement(body, "NewBillingTelephoneNumber").text = _e164_tn(
                     new_billing_telephone_number
                 )
+        warnings, preflight, refusal = await port_in_advisories(
+            config, numbers, billing_telephone_number, pin, account_id,
+            include_loa_warning=not bool(loa_file_base64),
+            acknowledge_warnings=acknowledge_warnings,
+        )
+        if refusal:
+            return refusal
         result = await _dashboard_send(config, "POST", "portins", body, account_id)
+        result["warnings"] = warnings
+        result["carrier_preflight"] = preflight
 
         order_id = result.get("id") or ""
         if not order_id:
@@ -1018,15 +1114,16 @@ def register_numbers_tools(mcp, config: dict) -> None:
                         filename=loa_filename or "loa.pdf",
                         document_type="LOA",
                         account_id=account_id,
+                        file_sha256=loa_sha256,
                     )
                     loa_list = await _dashboard_json(
-                        config, f"portins/{order_id}/loas", account_id
+                        config, f"portins/{_path_segment(order_id)}/loas", account_id
                     )
                     result["loa"] = loa_list
                 except Exception as exc:
                     result["loa_error"] = (
-                        f"Order created successfully, but attaching the LOA failed: {exc}. "
-                        f"Retry attaching the LOA with uploadPortInLoa(order_id={order_id!r})."
+                        f"Order created, but attachment outcome was not confirmed: {exc}. "
+                        "Inspect the existing order's document list before retrying; do not recreate the order."
                     )
             else:
                 result["loa_error"] = (
@@ -1042,15 +1139,15 @@ def register_numbers_tools(mcp, config: dict) -> None:
         filename: str,
         document_type: str = "LOA",
         content_type: str = "",
+        file_sha256: str = "",
         confirm: str = "",
         account_id: str = "",
     ) -> dict:
-        """UPLOAD the signed LOA (or a supporting document) onto a port-in
-        order. A port-in sits in PENDING_DOCUMENTS until this lands, so this
-        is the step that actually gets the port moving.
+        """Upload a signed LOA or supporting document onto a port-in order.
 
-        The file arrives as base64: read the signed PDF, base64-encode it, and
-        pass the string. Bandwidth accepts pdf, tiff, jpeg, png, and txt.
+        Pass the existing file as base64, or use the local upload helper to
+        transfer its bytes without transcribing them through the model. Inspect
+        the document list and order status after uploading.
 
         Args:
             order_id: The LNP order id (from createPortInOrder or
@@ -1065,6 +1162,13 @@ def register_numbers_tools(mcp, config: dict) -> None:
         conf_err = check_confirmation("uploadPortInLoa", confirm)
         if conf_err is not None:
             raise RuntimeError(conf_err["error"])
+        _, mime, doc_type = _validate_document(file_base64, filename, document_type, content_type, file_sha256)
+        if doc_type == "LOA" and mime not in ("application/pdf", "image/tiff"):
+            order = await _dashboard_json(config, f"portins/{_path_segment(order_id)}", account_id)
+            order_numbers = _order_numbers(order)
+            if not order_numbers:
+                raise ValueError("Cannot determine whether this order is toll-free; use PDF or TIFF or inspect the order.")
+            _validate_toll_free_loa(order_numbers, mime)
         return await _upload_port_in_document(
             config,
             order_id,
@@ -1073,6 +1177,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
             document_type=document_type,
             content_type=content_type,
             account_id=account_id,
+            file_sha256=file_sha256,
         )
 
     @mcp.tool(name="supplementPortInOrder", annotations=_WRITE)
@@ -1082,26 +1187,27 @@ def register_numbers_tools(mcp, config: dict) -> None:
         requested_foc_time: str = "",
         site_id: str = "",
         loa_authorizing_person: str = "",
+        losing_carrier_account_number: str | None = None,
+        pin: str | None = None,
+        subscriber_type: str | None = None,
+        business_name: str | None = None,
+        first_name: str | None = None,
+        last_name: str | None = None,
+        house_number: str | None = None,
+        street_name: str | None = None,
+        address_line_2: str | None = None,
+        city: str | None = None,
+        state_code: str | None = None,
+        zip_code: str | None = None,
+        reset_address_fields: bool = False,
+        acknowledge_warnings: list[str] | None = None,
         confirm: str = "",
         account_id: str = "",
     ) -> dict:
-        """SUPP (modify) an existing port-in order: change the FOC date or time,
-        or correct details. Only pass the fields being changed.
+        """Modify a port-in. Internal orders use fresh read/merge/write.
 
-        Note: an activation time (requested_foc_time) cannot be added to an
-        order that was not filed as Triggered (Bandwidth error 7608).
-
-        Args:
-            order_id: The LNP order id (from listPortInOrders).
-            requested_foc_date: New requested port date (YYYY-MM-DD).
-            requested_foc_time: Optional new requested activation time in 24h
-                Eastern time (e.g. "20:00" for 8:00 PM ET). Setting a time
-                requires requested_foc_date. Sets Triggered=true. Valid
-                windows are 05:00 to 22:00 ET (on-net/internal) and 06:00 to
-                22:00 ET (off-net).
-            site_id: Corrected destination site.
-            loa_authorizing_person: Corrected LOA signer name.
-            account_id: Optional account (see listAccounts).
+        Other variants retain legacy sparse updates for date, site and signer,
+        which may remove omitted fields. New corrections require INTERNAL.
         """
         conf_err = check_confirmation("supplementPortInOrder", confirm)
         if conf_err is not None:
@@ -1134,11 +1240,147 @@ def register_numbers_tools(mcp, config: dict) -> None:
                     f"requested_foc_date: YYYY-MM-DD, got {requested_foc_date!r}"
                 )
 
+        values = (losing_carrier_account_number, pin, subscriber_type, business_name,
+                  first_name, last_name, house_number, street_name, address_line_2,
+                  city, state_code, zip_code)
+        if any(value is not None and (not isinstance(value, str) or not value.strip()) for value in values):
+            raise ValueError("Changed text fields must be nonempty strings.")
+        if not any((requested_foc_date, requested_foc_time, site_id, loa_authorizing_person,
+                    reset_address_fields, *values)):
+            raise ValueError("Nothing to change.")
+        if reset_address_fields and not all((house_number, street_name, city, state_code, zip_code)):
+            raise ValueError("Address reset requires house number, street, city, state and ZIP.")
+        path = f"portins/{_path_segment(order_id)}"
+        new_fields = any(value is not None for value in values) or reset_address_fields
+        try:
+            current = fromstring(await _dashboard_get(config, path, account_id))
+            if current.tag != "LnpOrderResponse":
+                current = current.find(".//LnpOrderResponse")
+            if current is None:
+                raise ValueError("Missing order response")
+        except Exception as exc:
+            if new_fields:
+                raise RuntimeError("No supplement submitted: the current order and its port type could not be read.") from exc
+            current = None
+        if current is not None and (current.findtext("PortType") or "").strip().upper() == "INTERNAL":
+            body = Element("LnpOrderSupp")
+            allowed = {
+                "CustomerOrderId", "PeerId", "RequestedFocDate", "SiteId", "Tags",
+                "BillingTelephoneNumber", "Subscriber", "TnAttributes", "Triggered",
+                "LosingResellerName", "LoaAuthorizingPerson", "NewBillingTelephoneNumber",
+                "PartialPort", "WirelessInfo",
+            }
+            if (current.findtext("ProcessingStatus") or "").strip().upper() == "DRAFT":
+                allowed.add("AlternateSpid")
+            for child in current:
+                if child.tag in allowed:
+                    body.append(deepcopy(child))
+
+            def put(parent, tag, value):
+                node = parent.find(tag)
+                if node is None:
+                    node = SubElement(parent, tag)
+                node.text = value
+
+            if requested_foc_time and (current.findtext("Triggered") or "").strip().lower() != "true":
+                raise ValueError("Cannot add an activation time to an order that is not already Triggered.")
+            if requested_foc_date:
+                formatted, _ = _format_foc_date_time(requested_foc_date, requested_foc_time)
+                put(body, "RequestedFocDate", formatted)
+            if site_id:
+                put(body, "SiteId", site_id.strip())
+            if loa_authorizing_person:
+                put(body, "LoaAuthorizingPerson", loa_authorizing_person.strip())
+            if losing_carrier_account_number is not None or pin is not None:
+                wireless = body.find("WirelessInfo")
+                if wireless is None:
+                    wireless = SubElement(body, "WirelessInfo")
+                for tag, value in (("AccountNumber", losing_carrier_account_number), ("PinNumber", pin)):
+                    existing = wireless.findtext(tag) or ""
+                    if value is None and (not existing.strip() or any(c in existing for c in "*•●")):
+                        raise ValueError(f"Cannot preserve WirelessInfo.{tag}: current value is missing or masked.")
+                    if value is not None:
+                        put(wireless, tag, value.strip())
+            wireless = body.find("WirelessInfo")
+            if wireless is not None:
+                for tag in ("AccountNumber", "PinNumber"):
+                    existing = wireless.findtext(tag) or ""
+                    if not existing.strip() or any(c in existing for c in "*•●"):
+                        raise ValueError(f"Cannot preserve WirelessInfo.{tag}: current value is missing or masked.")
+            subscriber_changes = (subscriber_type, business_name, first_name, last_name)
+            address_changes = (house_number, street_name, address_line_2, city, state_code, zip_code)
+            if any(v is not None for v in subscriber_changes + address_changes) or reset_address_fields:
+                subscriber = body.find("Subscriber")
+                if subscriber is None:
+                    subscriber = SubElement(body, "Subscriber")
+                for tag, value in zip(("SubscriberType", "BusinessName", "FirstName", "LastName"), subscriber_changes):
+                    if value is not None:
+                        put(subscriber, tag, value.strip())
+                if any(v is not None for v in address_changes) or reset_address_fields:
+                    address = subscriber.find("ServiceAddress")
+                    if address is None:
+                        address = SubElement(subscriber, "ServiceAddress")
+                    if reset_address_fields:
+                        address.clear()
+                    for tag, value in zip(("HouseNumber", "StreetName", "AddressLine2", "City", "StateCode", "Zip"), address_changes):
+                        if value is not None:
+                            put(address, tag, value.strip())
+                    if reset_address_fields:
+                        put(address, "ResetAddressFields", "true")
+            numbers = [n.text for n in current.findall("./ListOfPhoneNumbers/PhoneNumber") if n.text]
+            warnings, preflight, refusal = await port_in_advisories(
+                config, numbers, current.findtext("BillingTelephoneNumber") or "",
+                pin or "", account_id, acknowledge_warnings=acknowledge_warnings)
+            if refusal:
+                return refusal
+            result = await _dashboard_send(config, "PUT", path, body, account_id)
+            result["warnings"] = warnings
+            result["carrier_preflight"] = preflight
+            try:
+                readback = fromstring(await _dashboard_get(config, path, account_id))
+                if readback.tag != "LnpOrderResponse":
+                    readback = readback.find(".//LnpOrderResponse")
+                if readback is None:
+                    raise ValueError("Missing order response")
+                result["readback_status"] = (readback.findtext("ProcessingStatus") or "unknown")
+                result["verification"] = "pending"
+                def leaf_paths(node, prefix=""):
+                    for child in node:
+                        path_part = f"{prefix}/{child.tag}" if prefix else child.tag
+                        if list(child):
+                            yield from leaf_paths(child, path_part)
+                        elif child.tag != "ResetAddressFields":
+                            yield path_part
+                differences = []
+                for field_path in dict.fromkeys(leaf_paths(body)):
+                    expected = [(node.text or "").strip() for node in body.findall(field_path)]
+                    actual = [(node.text or "").strip() for node in readback.findall(field_path)]
+                    if expected != actual:
+                        differences.append(field_path)
+                if reset_address_fields:
+                    old_address = current.find("Subscriber/ServiceAddress")
+                    new_address = body.find("Subscriber/ServiceAddress")
+                    if old_address is not None and new_address is not None:
+                        for old_field in old_address:
+                            if new_address.find(old_field.tag) is None and readback.find(
+                                f"Subscriber/ServiceAddress/{old_field.tag}"
+                            ) is not None:
+                                differences.append(f"Subscriber/ServiceAddress/{old_field.tag}")
+                if differences:
+                    result["readback_differences"] = differences
+                result["message"] = "Supplement accepted; inspect the existing order for final processing. GET and PUT are not atomic."
+            except Exception:
+                result["verification"] = "unknown"
+                result["message"] = "Supplement was submitted but readback failed. Inspect the existing order before retrying."
+            return result
+        if new_fields:
+            raise RuntimeError(
+                "No supplement was submitted: the order's writable port variant "
+                "and preservation requirements cannot be established safely."
+            )
         body = Element("LnpOrderSupp")
         if requested_foc_date.strip():
-            foc_date_formatted, is_triggered = _format_foc_date_time(
-                requested_foc_date, requested_foc_time
-            )
+            foc_date_formatted, is_triggered = _format_foc_date_time(requested_foc_date, requested_foc_time)
             SubElement(body, "RequestedFocDate").text = foc_date_formatted
             if is_triggered:
                 SubElement(body, "Triggered").text = "true"
@@ -1146,11 +1388,7 @@ def register_numbers_tools(mcp, config: dict) -> None:
             SubElement(body, "SiteId").text = site_id
         if loa_authorizing_person:
             SubElement(body, "LoaAuthorizingPerson").text = loa_authorizing_person
-        if len(body) == 0:
-            raise RuntimeError("Nothing to change: pass at least one field.")
-        return await _dashboard_send(
-            config, "PUT", f"portins/{order_id}", body, account_id
-        )
+        return await _dashboard_send(config, "PUT", f"portins/{_path_segment(order_id)}", body, account_id)
 
     @mcp.tool(name="cancelPortInOrder", annotations=_DESTRUCTIVE)
     async def cancel_port_in_order(

@@ -91,6 +91,10 @@ def _find_child_schema(schema: Optional[Dict[str, Any]], root_tag: str) -> Optio
                             return pv
     return schema
 
+def _xml_scalar(value: Any) -> str:
+    return str(value).lower() if isinstance(value, bool) else str(value)
+
+
 
 def dict_to_xml(
     tag: str, data: Any, schema: Optional[Dict[str, Any]] = None
@@ -107,7 +111,7 @@ def dict_to_xml(
     el = Element(tag)
     if not isinstance(data, dict):
         if data is not None:
-            el.text = str(data)
+            el.text = _xml_scalar(data)
         return el
 
     props_schema = (
@@ -118,9 +122,9 @@ def dict_to_xml(
         if v is None:
             continue
         if k.startswith("@"):
-            el.set(k[1:], str(v))
+            el.set(k[1:], _xml_scalar(v))
         elif k in ("#text", "text") and not isinstance(v, (dict, list)):
-            el.text = str(v)
+            el.text = _xml_scalar(v)
         elif isinstance(v, list):
             prop_meta = (
                 props_schema.get(k, {}) if isinstance(props_schema, dict) else {}
@@ -157,24 +161,24 @@ def dict_to_xml(
                             if isinstance(val, (dict, list)):
                                 wrapper.append(dict_to_xml(sub_tag, val, items_schema))
                             else:
-                                SubElement(wrapper, sub_tag).text = str(val)
+                                SubElement(wrapper, sub_tag).text = _xml_scalar(val)
                         else:
                             wrapper.append(dict_to_xml(sub_tag, item, items_schema))
                     else:
-                        SubElement(wrapper, sub_tag).text = str(item)
+                        SubElement(wrapper, sub_tag).text = _xml_scalar(item)
             else:
                 for item in v:
                     if isinstance(item, dict):
                         el.append(dict_to_xml(sub_tag, item, items_schema))
                     else:
-                        SubElement(el, sub_tag).text = str(item)
+                        SubElement(el, sub_tag).text = _xml_scalar(item)
         elif isinstance(v, dict):
             child_schema = (
                 props_schema.get(k) if isinstance(props_schema, dict) else None
             )
             el.append(dict_to_xml(k, v, child_schema))
         else:
-            SubElement(el, k).text = str(v)
+            SubElement(el, k).text = _xml_scalar(v)
 
     return el
 

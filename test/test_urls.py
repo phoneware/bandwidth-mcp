@@ -119,7 +119,7 @@ def test_no_inlined_hosts_in_src(monkeypatch):
     for py in root.rglob("*.py"):
         if py.name in allowed_files:
             continue
-        text = py.read_text()
+        text = py.read_text(encoding="utf-8")
         for needle in forbidden:
             if needle in text:
                 offenders.append(f"{py}: {needle}")

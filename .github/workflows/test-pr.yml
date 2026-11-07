@@ -15,7 +15,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-2025, ubuntu-24.04]
+        os: [windows-2025, ubicloud-standard-2-ubuntu-2404]
         python-version: ['3.10', '3.11', '3.12', '3.13', '3.14']
       fail-fast: false
     env:

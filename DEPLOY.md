@@ -1,5 +1,13 @@
 # Deploying the Phoneware-hosted Bandwidth MCP
 
+> **The deployment moved.** `phoneware/monorepo` now owns the Cloud Run service: Terraform in
+> `infra/terraform/bandwidth-mcp.tf`, the build in `services/bandwidth-mcp`, and the deploy in that
+> repository's Deploy workflow. This repository holds the code only; its `deploy.yml` and
+> `cloudbuild.yaml` are removed and nothing here deploys. The deployment steps below describe the
+> former pipeline and are kept for the security notes. Two things changed with the move: the live
+> service runs as its own service account, and it runs with no minimum instance, so the first call
+> after an idle period waits for a cold start.
+
 Vendored fork of the official [`Bandwidth/mcp-server`](https://github.com/Bandwidth/mcp-server)
 (Bandwidth ships it as a self-run Beta package; there is no Bandwidth-hosted
 version). We run it single-tenant on Cloud Run in `streamable-http` mode behind

@@ -11,6 +11,12 @@ This file is the operational guide for working in the repo. `README.md` is the
 overview, `DEPLOY.md` is the deploy/security detail, and `src/specs/AGENTS.md` is
 the per-tool reference an agent reads at runtime.
 
+**Deployment moved to `phoneware/monorepo`.** Where this guide says the live surface or
+configuration is set in `cloudbuild.yaml`, or that a push to `main` deploys, that is the former
+pipeline: `cloudbuild.yaml` and `deploy.yml` are removed from this repository. The Cloud Run
+service, its environment and its identity are Terraform in `infra/terraform/bandwidth-mcp.tf` there,
+and the image is built by that repository's Deploy workflow. This repository holds the code only.
+
 ## What is ours vs upstream
 
 Upstream gives us a FastMCP server that turns Bandwidth's public OpenAPI specs
